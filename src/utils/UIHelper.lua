@@ -20,7 +20,7 @@ local function getTextSafe(key)
     
     local text = g_i18n:getText(key)
     if text == nil or text == "" then
-        Logging.warning("sf: Missing translation for key: " .. tostring(key))
+        Logging.warning("[SoilFertilizer]Missing translation for key: " .. tostring(key))
         return key
     end
     return text
@@ -28,7 +28,7 @@ end
 
 function UIHelper.createSection(layout, textId)
     if not layout or not layout.elements then
-        Logging.error("sf: Invalid layout passed to createSection")
+        Logging.error("[SoilFertilizer]Invalid layout passed to createSection")
         return nil
     end
     
@@ -44,7 +44,7 @@ function UIHelper.createSection(layout, textId)
                 end
                 local addSuccess = pcall(function() layout:addElement(section) end)
                 if not addSuccess then
-                    Logging.error("sf: Failed to add section to layout")
+                    Logging.error("[SoilFertilizer]Failed to add section to layout")
                     return nil
                 end
             end
@@ -56,7 +56,7 @@ end
 
 function UIHelper.createDescription(layout, textId)
     if not layout or not layout.elements then
-        Logging.error("sf: Invalid layout passed to createDescription")
+        Logging.error("[SoilFertilizer]Invalid layout passed to createDescription")
         return nil
     end
 
@@ -73,13 +73,13 @@ function UIHelper.createDescription(layout, textId)
     end
     
     if not template then
-        Logging.warning("sf: Description template not found!")
+        Logging.warning("[SoilFertilizer]Description template not found!")
         return nil
     end
     
     local success, desc = pcall(function() return template:clone(layout) end)
     if not success or not desc then
-        Logging.error("sf: Failed to clone description template")
+        Logging.error("[SoilFertilizer]Failed to clone description template")
         return nil
     end
     
@@ -99,7 +99,7 @@ function UIHelper.createDescription(layout, textId)
     
     local addSuccess = pcall(function() layout:addElement(desc) end)
     if not addSuccess then
-        Logging.error("sf: Failed to add description to layout")
+        Logging.error("[SoilFertilizer]Failed to add description to layout")
         return nil
     end
     
@@ -108,7 +108,7 @@ end
 
 function UIHelper.createBinaryOption(layout, id, textId, state, callback)
     if not layout or not layout.elements then
-        Logging.error("sf: Invalid layout passed to createBinaryOption")
+        Logging.error("[SoilFertilizer]Invalid layout passed to createBinaryOption")
         return nil
     end
     
@@ -128,20 +128,20 @@ function UIHelper.createBinaryOption(layout, id, textId, state, callback)
     end
     
     if not template then 
-        Logging.warning("sf: BinaryOption template not found!")
+        Logging.warning("[SoilFertilizer]BinaryOption template not found!")
         return nil 
     end
     
     local success, row = pcall(function() return template:clone(layout) end)
     if not success or not row then
-        Logging.error("sf: Failed to clone binary option template")
+        Logging.error("[SoilFertilizer]Failed to clone binary option template")
         return nil
     end
     
     row.id = nil
     
     if not row.elements or #row.elements < 2 then
-        Logging.error("sf: Cloned row has invalid elements")
+        Logging.error("[SoilFertilizer]Cloned row has invalid elements")
         return nil
     end
     
@@ -170,7 +170,7 @@ function UIHelper.createBinaryOption(layout, id, textId, state, callback)
     
     local addSuccess = pcall(function() layout:addElement(row) end)
     if not addSuccess then
-        Logging.error("sf: Failed to add binary option to layout")
+        Logging.error("[SoilFertilizer]Failed to add binary option to layout")
         return nil
     end
     
@@ -212,7 +212,7 @@ end
 
 function UIHelper.createMultiOption(layout, id, textId, options, state, callback)
     if not layout or not layout.elements then
-        Logging.error("sf: Invalid layout passed to createMultiOption")
+        Logging.error("[SoilFertilizer]Invalid layout passed to createMultiOption")
         return nil
     end
     
@@ -229,20 +229,20 @@ function UIHelper.createMultiOption(layout, id, textId, options, state, callback
     end
     
     if not template then 
-        Logging.warning("sf: MultiOption template not found!")
+        Logging.warning("[SoilFertilizer]MultiOption template not found!")
         return nil 
     end
     
     local success, row = pcall(function() return template:clone(layout) end)
     if not success or not row then
-        Logging.error("sf: Failed to clone multi option template")
+        Logging.error("[SoilFertilizer]Failed to clone multi option template")
         return nil
     end
     
     row.id = nil
     
     if not row.elements or #row.elements < 2 then
-        Logging.error("sf: Cloned row has invalid elements")
+        Logging.error("[SoilFertilizer]Cloned row has invalid elements")
         return nil
     end
     
@@ -278,7 +278,7 @@ function UIHelper.createMultiOption(layout, id, textId, options, state, callback
     
     local addSuccess = pcall(function() layout:addElement(row) end)
     if not addSuccess then
-        Logging.error("sf: Failed to add multi option to layout")
+        Logging.error("[SoilFertilizer]Failed to add multi option to layout")
         return nil
     end
     

@@ -29,7 +29,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     -- GUI initialization (client only)
     local shouldInitGUI = not self.disableGUI and mission:getIsClient() and g_gui and not g_safeMode
     if shouldInitGUI then
-        print("Soil Mod: Initializing GUI elements...")
+        SoilLogger.info("Initializing GUI elements...")
         self.settingsUI = SoilSettingsUI.new(self.settings)
 
         -- Inject GUI safely
@@ -41,7 +41,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
                         self.settingsUI:inject()
                     end)
                     if not success then
-                        print("Soil Mod: GUI injection failed - switching to console-only mode")
+                        SoilLogger.warning("GUI injection failed - switching to console-only mode")
                         self.settingsUI.injected = true
                         self.disableGUI = true
                     end
@@ -61,7 +61,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
             end
         )
     else
-        print("Soil Mod: GUI initialization skipped (Server/Console mode)")
+        SoilLogger.info("GUI initialization skipped (Server/Console mode)")
         self.settingsUI = nil
     end
 
@@ -71,7 +71,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
 
     -- Load settings
     self.settings:load()
-    
+
     -- Load saved soil data
     self:loadSoilData()
 
@@ -95,7 +95,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
     end
 
     if pfDetected then
-        print("Soil Mod: Precision Farming detected - enabling read-only mode")
+        SoilLogger.info("Precision Farming detected - enabling read-only mode")
         self.soilSystem.PFActive = true
         if self.settings.showNotifications then
             if g_currentMission and g_currentMission.hud then
@@ -104,7 +104,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
                     8000
                 )
             else
-                self.soilSystem:log("PF Detected - Soil & Fertilizer Mod running in read-only mode")
+                SoilLogger.info("PF Detected - running in read-only mode")
             end
         end
     else
@@ -119,7 +119,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
                 if self.settingsUI then
                     self.settingsUI.compatibilityMode = true
                 end
-                print("Soil Mod: Used Tyres mod detected - UI compatibility mode enabled")
+                SoilLogger.info("Used Tyres mod detected - UI compatibility mode enabled")
                 break
             end
         end
@@ -142,7 +142,7 @@ function SoilFertilityManager:onMissionLoaded()
     end)
 
     if not success then
-        print("Soil Mod: Error during mission load - " .. tostring(errorMsg))
+        SoilLogger.error("Error during mission load - %s", tostring(errorMsg))
         self.settings.enabled = false
         self.settings:save()
     end
@@ -153,18 +153,18 @@ function SoilFertilityManager:saveSoilData()
     if not self.soilSystem or not g_currentMission or not g_currentMission.missionInfo then
         return
     end
-    
+
     local savegamePath = g_currentMission.missionInfo.savegameDirectory
     if not savegamePath then return end
-    
+
     local xmlPath = savegamePath .. "/soilData.xml"
     local xmlFile = createXMLFile("soilData", xmlPath, "soilData")
-    
+
     if xmlFile then
         self.soilSystem:saveToXMLFile(xmlFile, "soilData")
         saveXMLFile(xmlFile)
         delete(xmlFile)
-        print("Soil Mod: Soil data saved to " .. xmlPath)
+        SoilLogger.info("Soil data saved to %s", xmlPath)
     end
 end
 
@@ -173,20 +173,20 @@ function SoilFertilityManager:loadSoilData()
     if not self.soilSystem or not g_currentMission or not g_currentMission.missionInfo then
         return
     end
-    
+
     local savegamePath = g_currentMission.missionInfo.savegameDirectory
     if not savegamePath then return end
-    
+
     local xmlPath = savegamePath .. "/soilData.xml"
     if fileExists(xmlPath) then
         local xmlFile = loadXMLFile("soilData", xmlPath)
         if xmlFile then
             self.soilSystem:loadFromXMLFile(xmlFile, "soilData")
             delete(xmlFile)
-            print("Soil Mod: Soil data loaded from " .. xmlPath)
+            SoilLogger.info("Soil data loaded from %s", xmlPath)
         end
     else
-        print("Soil Mod: No saved soil data found, using defaults")
+        SoilLogger.info("No saved soil data found, using defaults")
     end
 end
 
@@ -199,12 +199,12 @@ end
 function SoilFertilityManager:delete()
     -- Save soil data before shutdown
     self:saveSoilData()
-    
+
     if self.soilSystem then
-        self.soilSystem.fieldData = nil
+        self.soilSystem:delete()
     end
     if self.settings then
         self.settings:save()
     end
-    print("Soil & Fertilizer Mod: Shutting down")
+    SoilLogger.info("Shutting down")
 end

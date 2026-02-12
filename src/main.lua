@@ -13,15 +13,28 @@
 local modDirectory = g_currentModDirectory
 local modName = g_currentModName
 
--- Source all required files
+-- Source all required files (order matters: dependencies first)
+-- 1. Utilities and config (no dependencies)
+source(modDirectory .. "src/utils/Logger.lua")
+source(modDirectory .. "src/config/Constants.lua")
+source(modDirectory .. "src/config/SettingsSchema.lua")
+
+-- 2. Core systems
+source(modDirectory .. "src/hooks/HookManager.lua")
 source(modDirectory .. "src/SoilFertilitySystem.lua")
 source(modDirectory .. "src/SoilFertilityManager.lua")
+
+-- 3. Settings
 source(modDirectory .. "src/settings/SettingsManager.lua")
 source(modDirectory .. "src/settings/Settings.lua")
 source(modDirectory .. "src/settings/SoilSettingsGUI.lua")
+
+-- 4. UI
 source(modDirectory .. "src/utils/UIHelper.lua")
 source(modDirectory .. "src/settings/SoilSettingsUI.lua")
-source(modDirectory .. "src/network/NetworkEvents.lua")  -- NEW: Multiplayer support
+
+-- 5. Network
+source(modDirectory .. "src/network/NetworkEvents.lua")
 
 -- Globals
 local sfm = nil
@@ -40,7 +53,7 @@ local function checkModCompatibility()
         for modName, _ in pairs(g_modIsLoaded) do
             local lower = string.lower(tostring(modName))
             if lower:find("tyre") or lower:find("tire") then
-                print("Soil Mod: Tyre-related mod detected - enabling compatibility mode")
+                SoilLogger.info("Tyre-related mod detected - enabling compatibility mode")
                 SAFE_MODE = true
                 break
             end
@@ -48,7 +61,7 @@ local function checkModCompatibility()
     end
 
     if g_currentMission and g_currentMission:getIsServer() and not g_currentMission:getIsClient() then
-        print("Soil Mod: Dedicated server detected - enabling compatibility mode")
+        SoilLogger.info("Dedicated server detected - enabling compatibility mode")
         SAFE_MODE = true
     end
 end
@@ -58,7 +71,7 @@ checkModCompatibility()
 local function loadedMission(mission, node)
     if not isEnabled() or mission.cancelLoading then return end
     sfm:onMissionLoaded()
-    
+
     -- MULTIPLAYER FIX: Request settings sync from server if client
     if g_client and not g_server and SoilNetworkEvents_RequestFullSync then
         -- Delay sync request to ensure server is ready
@@ -77,23 +90,23 @@ local function load(mission)
     local disableGUI = isDedicatedServer or SAFE_MODE or not mission:getIsClient()
 
     if disableGUI then
-        print("Soil Mod: Server/console-only mode - GUI disabled")
+        SoilLogger.info("Server/console-only mode - GUI disabled")
     end
 
     if sfm == nil then
-        print("Soil & Fertilizer Mod: Initializing...")
-        
+        SoilLogger.info("Initializing...")
+
         -- Log multiplayer status
         if mission.missionDynamicInfo.isMultiplayer then
             if mission:getIsServer() then
-                print("Soil Mod: Running as MULTIPLAYER SERVER")
+                SoilLogger.info("Running as MULTIPLAYER SERVER")
             else
-                print("Soil Mod: Running as MULTIPLAYER CLIENT")
+                SoilLogger.info("Running as MULTIPLAYER CLIENT")
             end
         else
-            print("Soil Mod: Running in SINGLEPLAYER mode")
+            SoilLogger.info("Running in SINGLEPLAYER mode")
         end
-        
+
         sfm = SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
         getfenv(0)["g_SoilFertilityManager"] = sfm
 
@@ -102,7 +115,7 @@ local function load(mission)
             sfm.settingsUI.injected = true
         end
 
-        print("Soil & Fertilizer Mod: Initialized in " .. (disableGUI and "server/console" or "full") .. " mode")
+        SoilLogger.info("Initialized in %s mode", disableGUI and "server/console" or "full")
     end
 end
 
@@ -119,20 +132,20 @@ end
 local function delayedGUISetup()
     if SAFE_MODE or guiInjected then return end
     if g_gui and g_SoilFertilityManager and g_SoilFertilityManager.settingsUI then
-        if g_currentMission and g_currentMission.isClient and 
-           g_currentMission.controlledVehicle and 
+        if g_currentMission and g_currentMission.isClient and
+           g_currentMission.controlledVehicle and
            g_gui.screenControllers and g_gui.screenControllers[InGameMenu] then
 
-            print("Soil Mod: Attempting safe GUI injection...")
+            SoilLogger.info("Attempting safe GUI injection...")
             local success, errorMsg = pcall(function()
                 if not g_SoilFertilityManager.settingsUI.injected then
                     g_SoilFertilityManager.settingsUI:inject()
-                    print("Soil Mod: GUI injected successfully")
+                    SoilLogger.info("GUI injected successfully")
                 end
             end)
 
             if not success then
-                print("Soil Mod: GUI injection failed: " .. tostring(errorMsg))
+                SoilLogger.warning("GUI injection failed: %s", tostring(errorMsg))
                 SAFE_MODE = true
             end
 
@@ -157,7 +170,7 @@ local function hookSaveLoadEvents()
             end
         )
     end
-    
+
     -- Hook mission load
     if Mission00.loadFromXMLFile then
         Mission00.loadFromXMLFile = Utils.appendedFunction(
@@ -165,7 +178,7 @@ local function hookSaveLoadEvents()
             function(mission, xmlFile, key)
                 if g_SoilFertilityManager then
                     g_SoilFertilityManager:loadSoilData()
-                    
+
                     -- If multiplayer client, request sync
                     if g_client and not g_server and SoilNetworkEvents_RequestFullSync then
                         -- Small delay to let server finish loading
@@ -231,7 +244,7 @@ function soilStatus()
         local isMultiplayer = g_currentMission and g_currentMission.missionDynamicInfo.isMultiplayer
         local isServer = g_server ~= nil
         local isClient = g_client ~= nil
-        
+
         print(string.format(
             "=== Soil & Fertilizer Status ===\n" ..
             "Mode: %s\n" ..
@@ -264,7 +277,7 @@ function soilStatus()
 end
 
 -- Additional console command for saving data
-addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveData", 
+addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveData",
     function()
         if g_SoilFertilityManager then
             g_SoilFertilityManager:saveSoilData()
@@ -277,13 +290,13 @@ addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveDat
 -- Expose global console functions
 getfenv(0)["soilfertility"] = soilfertility
 getfenv(0)["soilStatus"] = soilStatus
-getfenv(0)["soilEnable"] = function() 
+getfenv(0)["soilEnable"] = function()
     if g_SoilFertilityManager and g_SoilFertilityManager.settingsGUI then
         return g_SoilFertilityManager.settingsGUI:consoleCommandSoilEnable()
     end
     return "Soil & Fertilizer Mod not initialized"
 end
-getfenv(0)["soilDisable"] = function() 
+getfenv(0)["soilDisable"] = function()
     if g_SoilFertilityManager and g_SoilFertilityManager.settingsGUI then
         return g_SoilFertilityManager.settingsGUI:consoleCommandSoilDisable()
     end
