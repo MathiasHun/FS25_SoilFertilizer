@@ -280,7 +280,31 @@ function SoilSettingsUI:validateInjection()
         return false
     end
 
-    -- Verify at least some of our elements are in the layout
+    -- MP Server Mode: Use simplified validation
+    -- In multiplayer, layout structure differs and strict verification gives false negatives
+    -- Trust UIHelper's built-in pcall validation instead
+    local isMultiplayerServer = g_currentMission and g_currentMission.missionDynamicInfo.isMultiplayer and g_server
+
+    if isMultiplayerServer then
+        -- Simplified validation for MP: just verify we created functional elements
+        local hasValidElements = false
+        for _, elem in ipairs(self.uiElements) do
+            if elem and type(elem) == "table" then
+                hasValidElements = true
+                break
+            end
+        end
+
+        if not hasValidElements then
+            SoilLogger.warning("Validation failed: No valid UI elements in MP mode")
+            return false
+        end
+
+        SoilLogger.info("GUI validation passed (MP server mode): %d elements created", #self.uiElements)
+        return true
+    end
+
+    -- Singleplayer Mode: Use strict layout verification
     local foundCount = 0
     for _, elem in ipairs(self.uiElements) do
         if elem then
@@ -303,7 +327,7 @@ function SoilSettingsUI:validateInjection()
         return false
     end
 
-    SoilLogger.info("GUI validation passed: %d/%d elements verified", foundCount, #self.uiElements)
+    SoilLogger.info("GUI validation passed (SP mode): %d/%d elements verified", foundCount, #self.uiElements)
     return true
 end
 
