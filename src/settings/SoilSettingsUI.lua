@@ -201,6 +201,12 @@ function SoilSettingsUI:inject()
         end
     end
 
+    -- Validate injection before marking as complete
+    if not self:validateInjection() then
+        SoilLogger.warning("GUI injection failed validation")
+        return false
+    end
+
     self.injected = true
 
     local statusMsg = string.format(
@@ -209,7 +215,7 @@ function SoilSettingsUI:inject()
         tostring(pfActive),
         tostring(g_currentMission.missionDynamicInfo.isMultiplayer)
     )
-    print("[SoilFertilizer] " .. statusMsg)
+    SoilLogger.info(statusMsg)
 
     return true
 end
@@ -244,6 +250,61 @@ function SoilSettingsUI:refreshUI()
     end
 
     print("[SoilFertilizer] UI refreshed with current settings")
+end
+
+-- Validate that UI elements were successfully injected
+function SoilSettingsUI:validateInjection()
+    -- Check that we have UI elements
+    if not self.uiElements or #self.uiElements == 0 then
+        SoilLogger.warning("Validation failed: No UI elements created")
+        return false
+    end
+
+    -- Check that g_gui is available
+    if not g_gui or not g_gui.screenControllers then
+        SoilLogger.warning("Validation failed: g_gui not available")
+        return false
+    end
+
+    -- Check that InGameMenu exists
+    local inGameMenu = g_gui.screenControllers[InGameMenu]
+    if not inGameMenu or not inGameMenu.pageSettings then
+        SoilLogger.warning("Validation failed: InGameMenu not available")
+        return false
+    end
+
+    -- Check that settings layout exists
+    local layout = inGameMenu.pageSettings.generalSettingsLayout
+    if not layout or not layout.elements then
+        SoilLogger.warning("Validation failed: Settings layout not available")
+        return false
+    end
+
+    -- Verify at least some of our elements are in the layout
+    local foundCount = 0
+    for _, elem in ipairs(self.uiElements) do
+        if elem then
+            for _, layoutElem in ipairs(layout.elements) do
+                if layoutElem == elem then
+                    foundCount = foundCount + 1
+                    break
+                end
+            end
+        end
+    end
+
+    -- Require at least 50% of elements to be found
+    local requiredCount = math.ceil(#self.uiElements * 0.5)
+    if foundCount < requiredCount then
+        SoilLogger.warning(
+            "Validation failed: Only %d/%d elements found in layout (required: %d)",
+            foundCount, #self.uiElements, requiredCount
+        )
+        return false
+    end
+
+    SoilLogger.info("GUI validation passed: %d/%d elements verified", foundCount, #self.uiElements)
+    return true
 end
 
 function SoilSettingsUI:ensureResetButton(settingsFrame)
