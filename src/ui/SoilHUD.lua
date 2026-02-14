@@ -96,12 +96,47 @@ function SoilHUD:getCurrentFieldId()
     local x, z
     local source = "unknown"
 
-    -- Try player first
+    -- Debug: Log what's available
+    if self.settings.debugMode then
+        local player = g_currentMission.player
+        local vehicle = g_currentMission.controlledVehicle
+        SoilLogger.debug("[HUD] Player object: %s, rootNode: %s",
+            tostring(player ~= nil),
+            player and tostring(player.rootNode ~= nil) or "N/A")
+        SoilLogger.debug("[HUD] Vehicle object: %s, rootNode: %s",
+            tostring(vehicle ~= nil),
+            vehicle and tostring(vehicle.rootNode ~= nil) or "N/A")
+    end
+
+    -- Try player first (standard method)
     local player = g_currentMission.player
     if player and player.rootNode then
         local px, _, pz = getWorldTranslation(player.rootNode)
         x, z = px, pz
         source = "player"
+    -- Fallback: Try player position from baseInformation (FS25 multiplayer)
+    elseif player and player.baseInformation and player.baseInformation.lastPositionX then
+        x = player.baseInformation.lastPositionX
+        z = player.baseInformation.lastPositionZ
+        source = "player.baseInformation"
+        if self.settings.debugMode then
+            SoilLogger.debug("[HUD] Using player.baseInformation for position")
+        end
+    -- Fallback: Try getting position from camera (when player is active but rootNode unavailable)
+    elseif g_currentMission.camera then
+        -- Try camera position (different methods depending on camera type)
+        local success, cx, cy, cz = pcall(function()
+            if g_currentMission.camera.cameraNode then
+                return getWorldTranslation(g_currentMission.camera.cameraNode)
+            end
+        end)
+        if success and cx and cz then
+            x, z = cx, cz
+            source = "camera"
+            if self.settings.debugMode then
+                SoilLogger.debug("[HUD] Using camera position as fallback")
+            end
+        end
     else
         -- Try controlled vehicle
         local vehicle = g_currentMission.controlledVehicle
@@ -112,6 +147,17 @@ function SoilHUD:getCurrentFieldId()
         else
             if self.settings.debugMode then
                 SoilLogger.debug("[HUD] getCurrentFieldId: No player or vehicle position available")
+                -- Try alternative position sources
+                if player then
+                    -- Log all properties of player object to find the right one
+                    SoilLogger.debug("[HUD] Player object exists but rootNode is nil - checking alternatives...")
+                    if player.baseInformation and player.baseInformation.lastPositionX then
+                        SoilLogger.debug("[HUD] Found baseInformation.lastPositionX/Z")
+                    end
+                    if player.networkInformation and player.networkInformation.interpolatorPosition then
+                        SoilLogger.debug("[HUD] Found networkInformation.interpolatorPosition")
+                    end
+                end
             end
             return nil
         end
