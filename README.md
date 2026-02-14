@@ -163,7 +163,7 @@ If you encounter issues:
 The mod is written in Lua and follows Farming Simulator 25's modding guidelines. Source code is included for transparency and educational purposes.
 
 ### Contributing
-While this is a personal project, suggestions and feedback are welcome on the KingMods page.
+While this is a personal project, suggestions and feedback are welcome.
 
 ### Credits
 - **Author:** TisonK
