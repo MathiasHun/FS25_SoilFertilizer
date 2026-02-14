@@ -9,6 +9,12 @@
 SoilFertilityManager = {}
 local SoilFertilityManager_mt = Class(SoilFertilityManager)
 
+--- Create new SoilFertilityManager instance
+---@param mission table The mission object
+---@param modDirectory string Path to mod directory
+---@param modName string Name of the mod
+---@param disableGUI boolean Whether to disable GUI elements
+---@return SoilFertilityManager
 function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     local self = setmetatable({}, SoilFertilityManager_mt)
 
@@ -189,6 +195,8 @@ function SoilFertilityManager:checkAndApplyCompatibility()
     end
 end
 
+--- Called after mission is loaded
+--- Initializes soil system, HUD, and requests multiplayer sync if needed
 function SoilFertilityManager:onMissionLoaded()
     if not self.settings.enabled then return end
 
@@ -245,7 +253,9 @@ function SoilFertilityManager:onToggleHUDInput()
     end
 end
 
--- Save soil data
+--- Save soil data to XML file
+--- Only runs on server in multiplayer, always in singleplayer
+--- Saves to {savegame}/soilData.xml
 function SoilFertilityManager:saveSoilData()
     if not self.soilSystem or not g_currentMission or not g_currentMission.missionInfo then
         return
@@ -265,7 +275,9 @@ function SoilFertilityManager:saveSoilData()
     end
 end
 
--- Load soil data
+--- Load soil data from XML file
+--- Reads from {savegame}/soilData.xml if exists
+--- Falls back to defaults if file not found
 function SoilFertilityManager:loadSoilData()
     if not self.soilSystem or not g_currentMission or not g_currentMission.missionInfo then
         return
@@ -287,6 +299,8 @@ function SoilFertilityManager:loadSoilData()
     end
 end
 
+--- Update loop called every frame
+---@param dt number Delta time in milliseconds
 function SoilFertilityManager:update(dt)
     if self.soilSystem then
         self.soilSystem:update(dt)
@@ -303,12 +317,15 @@ function SoilFertilityManager:update(dt)
     end
 end
 
+--- Draw loop called every frame for rendering
 function SoilFertilityManager:draw()
     if self.soilHUD then
         self.soilHUD:draw()
     end
 end
 
+--- Cleanup on mod unload
+--- Saves soil data and uninstalls hooks
 function SoilFertilityManager:delete()
     -- Save soil data before shutdown
     self:saveSoilData()

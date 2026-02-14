@@ -19,13 +19,14 @@ function SoilHUD.new(soilSystem, settings)
     self.backgroundOverlay = nil
     self.visible = true  -- Runtime visibility toggle (F8 key)
 
-    -- Panel dimensions (matching FIELD INFO style)
-    self.panelWidth = 0.15
-    self.panelHeight = 0.15
+    -- Panel dimensions from constants
+    self.panelWidth = SoilConstants.HUD.PANEL_WIDTH
+    self.panelHeight = SoilConstants.HUD.PANEL_HEIGHT
 
     -- Position will be set based on hudPosition setting
-    self.panelX = 0.850
-    self.panelY = 0.55
+    local defaultPos = SoilConstants.HUD.POSITIONS[1]
+    self.panelX = defaultPos.x
+    self.panelY = defaultPos.y
     self.lastHudPosition = nil  -- Track position changes
 
     return self
@@ -35,27 +36,11 @@ end
 function SoilHUD:updatePosition()
     local position = self.settings.hudPosition or 1
 
-    -- Position presets: 1=Top Right, 2=Top Left, 3=Bottom Right, 4=Bottom Left, 5=Center Right
-    if position == 1 then
-        -- Top Right (default)
-        self.panelX = 0.850
-        self.panelY = 0.70
-    elseif position == 2 then
-        -- Top Left
-        self.panelX = 0.010
-        self.panelY = 0.70
-    elseif position == 3 then
-        -- Bottom Right
-        self.panelX = 0.850
-        self.panelY = 0.20
-    elseif position == 4 then
-        -- Bottom Left
-        self.panelX = 0.010
-        self.panelY = 0.20
-    elseif position == 5 then
-        -- Center Right
-        self.panelX = 0.850
-        self.panelY = 0.45
+    -- Get position from constants (1=Top Right, 2=Top Left, 3=Bottom Right, 4=Bottom Left, 5=Center Right)
+    local pos = SoilConstants.HUD.POSITIONS[position]
+    if pos then
+        self.panelX = pos.x
+        self.panelY = pos.y
     end
 
     -- Update overlay position if it exists
@@ -175,6 +160,26 @@ function SoilHUD:draw()
     if g_currentMission and g_currentMission.hud and g_currentMission.hud.ingameMap then
         local mapState = g_currentMission.hud.ingameMap.state
         if mapState == IngameMap.STATE_LARGE_MAP then
+            return
+        end
+    end
+
+    -- Smart context-aware hiding
+    if g_currentMission then
+        -- Hide during tutorials
+        if g_currentMission.inGameMessage and g_currentMission.inGameMessage.visible then
+            return
+        end
+
+        -- Hide in construction mode (placeable placement/editing)
+        if g_currentMission.controlledVehicle == nil and g_currentMission.player then
+            if g_currentMission.player.isCarryingObject or g_currentMission.player.isObjectInRange then
+                return
+            end
+        end
+
+        -- Hide if camera is in special modes (cinema mode, photo mode, etc)
+        if g_currentMission.camera and g_currentMission.camera.isActivated == false then
             return
         end
     end

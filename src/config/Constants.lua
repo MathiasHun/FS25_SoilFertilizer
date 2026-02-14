@@ -157,11 +157,35 @@ SoilConstants.FERTILIZATION_THRESHOLDS = {
 }
 
 -- ========================================
+-- HUD DISPLAY
+-- ========================================
+SoilConstants.HUD = {
+    PANEL_WIDTH = 0.15,
+    PANEL_HEIGHT = 0.15,
+
+    -- Position presets (matched to hudPosition setting values 1-5)
+    POSITIONS = {
+        [1] = { x = 0.850, y = 0.70 },  -- Top Right
+        [2] = { x = 0.010, y = 0.70 },  -- Top Left
+        [3] = { x = 0.850, y = 0.20 },  -- Bottom Right
+        [4] = { x = 0.010, y = 0.20 },  -- Bottom Left
+        [5] = { x = 0.850, y = 0.45 },  -- Center Right
+    }
+}
+
+-- ========================================
 -- NETWORK SYNC
 -- ========================================
 SoilConstants.NETWORK = {
     FULL_SYNC_MAX_ATTEMPTS = 3,
     FULL_SYNC_RETRY_INTERVAL = 5000, -- ms
+
+    -- Network value type encoding
+    VALUE_TYPE = {
+        BOOLEAN = 0,
+        NUMBER = 1,
+        STRING = 2,
+    }
 }
 
 print("[SoilFertilizer] Constants loaded")

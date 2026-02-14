@@ -29,11 +29,11 @@ function SoilSettingChangeEvent:readStream(streamId, connection)
     self.settingName = streamReadString(streamId)
     local valueType = streamReadUInt8(streamId)
 
-    if valueType == 0 then -- boolean
+    if valueType == SoilConstants.NETWORK.VALUE_TYPE.BOOLEAN then
         self.settingValue = streamReadBool(streamId)
-    elseif valueType == 1 then -- number (int)
+    elseif valueType == SoilConstants.NETWORK.VALUE_TYPE.NUMBER then
         self.settingValue = streamReadInt32(streamId)
-    elseif valueType == 2 then -- string
+    elseif valueType == SoilConstants.NETWORK.VALUE_TYPE.STRING then
         self.settingValue = streamReadString(streamId)
     end
 
@@ -44,13 +44,13 @@ function SoilSettingChangeEvent:writeStream(streamId, connection)
     streamWriteString(streamId, self.settingName)
 
     if type(self.settingValue) == "boolean" then
-        streamWriteUInt8(streamId, 0)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.BOOLEAN)
         streamWriteBool(streamId, self.settingValue)
     elseif type(self.settingValue) == "number" then
-        streamWriteUInt8(streamId, 1)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.NUMBER)
         streamWriteInt32(streamId, self.settingValue)
     else
-        streamWriteUInt8(streamId, 2)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.STRING)
         streamWriteString(streamId, tostring(self.settingValue))
     end
 end
@@ -122,9 +122,9 @@ function SoilSettingSyncEvent:readStream(streamId, connection)
     self.settingName = streamReadString(streamId)
     local valueType = streamReadUInt8(streamId)
 
-    if valueType == 0 then
+    if valueType == SoilConstants.NETWORK.VALUE_TYPE.BOOLEAN then
         self.settingValue = streamReadBool(streamId)
-    elseif valueType == 1 then
+    elseif valueType == SoilConstants.NETWORK.VALUE_TYPE.NUMBER then
         self.settingValue = streamReadInt32(streamId)
     else
         self.settingValue = streamReadString(streamId)
@@ -137,13 +137,13 @@ function SoilSettingSyncEvent:writeStream(streamId, connection)
     streamWriteString(streamId, self.settingName)
 
     if type(self.settingValue) == "boolean" then
-        streamWriteUInt8(streamId, 0)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.BOOLEAN)
         streamWriteBool(streamId, self.settingValue)
     elseif type(self.settingValue) == "number" then
-        streamWriteUInt8(streamId, 1)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.NUMBER)
         streamWriteInt32(streamId, self.settingValue)
     else
-        streamWriteUInt8(streamId, 2)
+        streamWriteUInt8(streamId, SoilConstants.NETWORK.VALUE_TYPE.STRING)
         streamWriteString(streamId, tostring(self.settingValue))
     end
 end
@@ -464,56 +464,57 @@ function SoilNetworkEvents_RequestSettingChange(settingName, value)
     end
 end
 
--- Request full sync from server with retry logic
-local fullSyncRetryState = {
-    attempts = 0,
-    maxAttempts = SoilConstants.NETWORK.FULL_SYNC_MAX_ATTEMPTS,
-    retryInterval = SoilConstants.NETWORK.FULL_SYNC_RETRY_INTERVAL,
-    lastAttemptTime = 0,
-    pending = false
-}
+-- Request full sync from server with retry logic using AsyncRetryHandler
+local fullSyncRetryHandler = nil
+
+function SoilNetworkEvents_InitializeRetryHandler()
+    if fullSyncRetryHandler then return end
+
+    fullSyncRetryHandler = AsyncRetryHandler.new({
+        name = "FullSync",
+        maxAttempts = SoilConstants.NETWORK.FULL_SYNC_MAX_ATTEMPTS,
+        delays = {
+            SoilConstants.NETWORK.FULL_SYNC_RETRY_INTERVAL,
+            SoilConstants.NETWORK.FULL_SYNC_RETRY_INTERVAL,
+            SoilConstants.NETWORK.FULL_SYNC_RETRY_INTERVAL
+        },
+
+        onAttempt = function()
+            if not g_client or g_server then return end
+            g_client:getServerConnection():sendEvent(SoilRequestFullSyncEvent.new())
+            SoilLogger.info("Client: Requesting full sync (attempt %d/%d)",
+                fullSyncRetryHandler:getAttempts(), fullSyncRetryHandler.maxAttempts)
+        end,
+
+        onSuccess = function()
+            SoilLogger.info("Client: Full sync completed successfully")
+        end,
+
+        onFailure = function()
+            SoilLogger.warning("Client: Full sync failed after max attempts")
+        end
+    })
+end
 
 function SoilNetworkEvents_RequestFullSync()
     if not g_client or g_server then return end
 
-    fullSyncRetryState.attempts = 0
-    fullSyncRetryState.pending = true
-    SoilNetworkEvents_SendFullSyncRequest()
-end
-
-function SoilNetworkEvents_SendFullSyncRequest()
-    if not fullSyncRetryState.pending then return end
-
-    fullSyncRetryState.attempts = fullSyncRetryState.attempts + 1
-    fullSyncRetryState.lastAttemptTime = g_currentMission and g_currentMission.time or 0
-
-    g_client:getServerConnection():sendEvent(SoilRequestFullSyncEvent.new())
-    print(string.format("[SoilFertilizer] Client: Requesting full sync (attempt %d/%d)",
-        fullSyncRetryState.attempts, fullSyncRetryState.maxAttempts))
+    SoilNetworkEvents_InitializeRetryHandler()
+    fullSyncRetryHandler:start()
 end
 
 -- Called from update loop to handle retry
 function SoilNetworkEvents_UpdateSyncRetry(dt)
-    if not fullSyncRetryState.pending then return end
-
-    local currentTime = g_currentMission and g_currentMission.time or 0
-    local elapsed = currentTime - fullSyncRetryState.lastAttemptTime
-
-    if elapsed >= fullSyncRetryState.retryInterval then
-        if fullSyncRetryState.attempts < fullSyncRetryState.maxAttempts then
-            print("[SoilFertilizer] Client: Full sync response timeout, retrying...")
-            SoilNetworkEvents_SendFullSyncRequest()
-        else
-            print("[SoilFertilizer WARNING] Client: Full sync failed after max attempts")
-            fullSyncRetryState.pending = false
-        end
+    if fullSyncRetryHandler then
+        fullSyncRetryHandler:update(dt)
     end
 end
 
 -- Mark sync as received (called from SoilFullSyncEvent:run)
 function SoilNetworkEvents_OnFullSyncReceived()
-    fullSyncRetryState.pending = false
-    fullSyncRetryState.attempts = 0
+    if fullSyncRetryHandler then
+        fullSyncRetryHandler:markSuccess()
+    end
 end
 
 print("[SoilFertilizer] Network events system loaded")

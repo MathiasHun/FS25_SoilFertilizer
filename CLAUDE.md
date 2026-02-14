@@ -228,6 +228,26 @@ All tunable values live in `src/config/Constants.lua` (`SoilConstants` global). 
 
 ---
 
+## Naming Conventions
+
+This project follows standard Lua naming conventions with FS25-specific adaptations:
+
+| Type | Convention | Examples |
+|------|------------|----------|
+| **Classes** | PascalCase | `SoilLogger`, `HookManager`, `AsyncRetryHandler` |
+| **Variables/Fields** | camelCase | `fieldData`, `soilSystem`, `panelWidth` |
+| **Functions (methods)** | camelCase | `getCurrentFieldId()`, `updatePosition()`, `markSuccess()` |
+| **Functions (global)** | PascalCase_camelCase | `SoilNetworkEvents_RequestFullSync()` (namespace prefix) |
+| **Constants** | UPPER_SNAKE_CASE | `MAX_ATTEMPTS`, `PANEL_WIDTH`, `VALUE_TYPE` |
+| **Boolean flags** | Descriptive prefix OK | `pfActive` (Precision Farming active), `initialized` |
+| **File handles** | Descriptive prefix OK | `xmlFile` (XML file handle) |
+
+**Global Function Naming**: Global functions use `ModuleName_functionName` pattern to avoid conflicts in the global namespace. This is a FS25 modding best practice.
+
+**Descriptive Prefixes**: Prefixes like `pf` (Precision Farming) and `xml` are acceptable when they add clarity and context.
+
+---
+
 ## Console Commands
 
 Type `soilfertility` in the developer console (`~` key) for the full list. Key commands:

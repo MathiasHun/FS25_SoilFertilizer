@@ -17,9 +17,10 @@ function HookManager.new()
     return self
 end
 
---- Install all game hooks for the soil system.
---- Stores references for proper cleanup on uninstall.
----@param soilSystem table The SoilFertilitySystem instance
+--- Install all game hooks for the soil system
+--- Installs hooks for harvest, fertilizer, plowing, ownership, and weather
+--- Stores references for proper cleanup on uninstall
+---@param soilSystem SoilFertilitySystem The soil system instance to connect hooks to
 function HookManager:installAll(soilSystem)
     if self.installed then
         print("[SoilFertilizer] Hooks already installed, skipping re-installation")
@@ -38,7 +39,8 @@ function HookManager:installAll(soilSystem)
     print("[SoilFertilizer] All hooks installation complete")
 end
 
---- Uninstall all hooks and restore original functions.
+--- Uninstall all hooks and restore original functions
+--- Called on mod unload to prevent hook accumulation
 function HookManager:uninstallAll()
     if not self.installed then return end
 

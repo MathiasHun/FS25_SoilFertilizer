@@ -61,7 +61,11 @@ function SoilFertilitySystem:delete()
     self.isInitialized = false
 end
 
--- Hook delegate: called by HookManager when harvest occurs
+--- Hook delegate: called by HookManager when harvest occurs
+--- Depletes soil nutrients based on crop type and difficulty
+---@param fieldId number The field being harvested
+---@param fruitTypeIndex number FS25 fruit type index
+---@param liters number Amount harvested in liters
 function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters)
     self:updateFieldNutrients(fieldId, fruitTypeIndex, liters)
 
@@ -79,7 +83,11 @@ function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters)
     end
 end
 
--- Hook delegate: called by HookManager when fertilizer applied
+--- Hook delegate: called by HookManager when fertilizer applied
+--- Restores soil nutrients based on fertilizer type
+---@param fieldId number The field being fertilized
+---@param fillTypeIndex number FS25 fill type index for fertilizer
+---@param liters number Amount applied in liters
 function SoilFertilitySystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
     self:applyFertilizer(fieldId, fillTypeIndex, liters)
 
@@ -123,7 +131,9 @@ function SoilFertilitySystem:onFieldOwnershipChanged(fieldId, farmlandId, farmId
     end
 end
 
--- Hook delegate: called by HookManager when plowing occurs
+--- Hook delegate: called by HookManager when plowing occurs
+--- Increases organic matter and normalizes pH
+---@param fieldId number The field being plowed
 function SoilFertilitySystem:onPlowing(fieldId)
     if not fieldId or fieldId <= 0 then return end
     if not self.settings.plowingBonus then return end
@@ -505,7 +515,9 @@ function SoilFertilitySystem:readPFFieldData(fieldId)
     return nil
 end
 
--- Get field info for display
+--- Get field info for display (HUD, console, etc)
+---@param fieldId number The field ID to query
+---@return table|nil Field info with nutrient values and status, or nil if not found
 function SoilFertilitySystem:getFieldInfo(fieldId)
     if not fieldId or fieldId <= 0 then return nil end
 
