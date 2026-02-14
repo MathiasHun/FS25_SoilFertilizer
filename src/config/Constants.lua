@@ -170,7 +170,48 @@ SoilConstants.HUD = {
         [3] = { x = 0.850, y = 0.20 },  -- Bottom Right
         [4] = { x = 0.010, y = 0.20 },  -- Bottom Left
         [5] = { x = 0.850, y = 0.45 },  -- Center Right
-    }
+    },
+
+    -- Color themes (matched to hudColorTheme setting values 1-4)
+    COLOR_THEMES = {
+        [1] = { r = 0.4, g = 1.0, b = 0.4 },  -- Green (default farming theme)
+        [2] = { r = 0.4, g = 0.8, b = 1.0 },  -- Blue (cool tech theme)
+        [3] = { r = 1.0, g = 0.7, b = 0.2 },  -- Amber (high contrast)
+        [4] = { r = 0.9, g = 0.9, b = 0.9 },  -- Mono (minimalist grayscale)
+    },
+
+    -- Transparency levels (matched to hudTransparency setting values 1-5)
+    TRANSPARENCY_LEVELS = {
+        [1] = 0.25,  -- Clear (25%)
+        [2] = 0.50,  -- Light (50%)
+        [3] = 0.70,  -- Medium (70%) - default
+        [4] = 0.85,  -- Dark (85%)
+        [5] = 1.00,  -- Solid (100%)
+    },
+
+    -- Font size multipliers (matched to hudFontSize setting values 1-3)
+    FONT_SIZE_MULTIPLIERS = {
+        [1] = 0.85,  -- Small
+        [2] = 1.00,  -- Medium (default)
+        [3] = 1.20,  -- Large
+    },
+
+    -- Compact mode dimensions
+    COMPACT_LINE_HEIGHT = 0.013,  -- vs normal 0.016
+    NORMAL_LINE_HEIGHT = 0.016,
+
+    -- RENDER ORDER NOTES:
+    -- FS25 Giants Engine does not provide explicit render layer/Z-order APIs
+    -- Overlay render order is determined by:
+    --   1. Callback timing (we use FSBaseMission.update)
+    --   2. Call order within frame
+    --   3. Mod load order
+    -- Our HUD renders AFTER game UI init, BEFORE debug overlays
+    -- If experiencing conflicts with other mods, users should:
+    --   - Adjust HUD position via settings (5 presets available)
+    --   - Enable compact mode to reduce screen space
+    --   - Check mod load order in mods menu
+    -- Visibility checks ensure we don't render over critical UI (menus, dialogs, etc)
 }
 
 -- ========================================

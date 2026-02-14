@@ -144,6 +144,9 @@ function SoilFertilitySystem:onPlowing(fieldId)
     local changed = false
 
     -- Plowing benefit 1: Increase organic matter by 5% (mixing in crop residue)
+    -- Why: Plowing turns over the top soil layer, mixing in crop residue (stems, roots, chaff)
+    -- This incorporates organic material into the soil, increasing organic matter content
+    -- Organic matter improves soil structure, water retention, and microbial activity
     local omBefore = field.organicMatter or SoilConstants.FIELD_DEFAULTS.organicMatter
     local omIncrease = 5.0
     local omAfter = math.min(omBefore + omIncrease, SoilConstants.NUTRIENT_LIMITS.organicMatter.max)
@@ -154,14 +157,21 @@ function SoilFertilitySystem:onPlowing(fieldId)
     end
 
     -- Plowing benefit 2: pH normalization (0.1 units toward 7.0)
+    -- Why: Plowing aerates soil and exposes deeper layers to weathering
+    -- Acidic soils (pH < 7): Aeration promotes oxidation and mineral weathering, raising pH slightly
+    -- Alkaline soils (pH > 7): Aeration and organic matter decomposition produce mild acids, lowering pH
+    -- Result: pH gradually moves toward neutral (7.0) over time with regular plowing
+    -- This mimics real-world soil chemistry where plowing improves pH buffering capacity
     local phBefore = field.pH or SoilConstants.FIELD_DEFAULTS.pH
-    local phTarget = 7.0
-    local phNormalization = 0.1
+    local phTarget = 7.0  -- Neutral pH is optimal for most crops
+    local phNormalization = 0.1  -- Small adjustment per plowing event
     local phAfter = phBefore
 
     if phBefore < phTarget then
+        -- Acidic soil: Move toward neutral (increase pH)
         phAfter = math.min(phBefore + phNormalization, phTarget)
     elseif phBefore > phTarget then
+        -- Alkaline soil: Move toward neutral (decrease pH)
         phAfter = math.max(phBefore - phNormalization, phTarget)
     end
 
@@ -417,16 +427,31 @@ function SoilFertilitySystem:updateFieldNutrients(fieldId, fruitTypeIndex, harve
         return
     end
 
+    -- Look up crop-specific extraction rates (how much N/P/K this crop removes from soil)
+    -- Different crops have different nutrient demands:
+    -- - Wheat/Barley: High nitrogen demand (leafy growth)
+    -- - Corn/Maize: Very high N/P demand (large biomass)
+    -- - Soybeans: Low nitrogen (fixes own N), moderate P/K
+    -- - Potatoes/Sugar beets: High potassium demand (root/tuber crops)
     local name = string.lower(fruitDesc.name or "unknown")
     local rates = SoilConstants.CROP_EXTRACTION[name] or SoilConstants.CROP_EXTRACTION_DEFAULT
+
+    -- Calculate depletion factor based on harvest volume
+    -- Formula: factor = harvested liters / 1000
+    -- Why: Extraction rates are calibrated per 1000L of harvested crop
     local factor = harvestedLiters / 1000
 
-    -- Apply difficulty multiplier
+    -- Apply difficulty multiplier to depletion rate
+    -- Simple (0.7x): Slower depletion, easier to maintain soil
+    -- Realistic (1.0x): Normal depletion based on real-world rates
+    -- Hardcore (1.5x): Faster depletion, requires more fertilizer management
     local diffMultiplier = SoilConstants.DIFFICULTY.MULTIPLIERS[self.settings.difficulty]
     if diffMultiplier then
         factor = factor * diffMultiplier
     end
 
+    -- Deplete nutrients from soil, floor at MIN (can't go negative)
+    -- Only N/P/K deplete from harvest; pH and organic matter change through other means
     local limits = SoilConstants.NUTRIENT_LIMITS
     field.nitrogen   = math.max(limits.MIN, field.nitrogen   - rates.N * factor)
     field.phosphorus = math.max(limits.MIN, field.phosphorus - rates.P * factor)
@@ -461,6 +486,7 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
         return
     end
 
+    -- Look up fertilizer profile from constants (defines N/P/K/pH/OM values per type)
     local entry = SoilConstants.FERTILIZER_PROFILES[fillType.name]
     if not entry then
         self:log("Fertilizer type %s not recognized", fillType.name)
@@ -468,8 +494,19 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
     end
 
     local limits = SoilConstants.NUTRIENT_LIMITS
+
+    -- Calculate nutrient addition factor
+    -- Formula: factor = liters / 1000
+    -- Why: Fertilizer profiles are calibrated per 1000L
+    -- Example: 500L of fertilizer with N:20 adds 500/1000 * 20 = 10 points of nitrogen
     local factor = liters / 1000
 
+    -- Apply nutrients from fertilizer profile, capping at max limits
+    -- Each fertilizer type has different N/P/K ratios (see FERTILIZER_PROFILES in Constants)
+    -- Liquid fertilizer: High N, moderate P/K
+    -- Solid fertilizer: Balanced N/P/K
+    -- Manure/Slurry: Moderate N/P/K, adds organic matter
+    -- Lime: Raises pH, no nutrients
     if entry.N then field.nitrogen   = math.min(limits.MAX, field.nitrogen   + entry.N * factor) end
     if entry.P then field.phosphorus = math.min(limits.MAX, field.phosphorus + entry.P * factor) end
     if entry.K then field.potassium  = math.min(limits.MAX, field.potassium  + entry.K * factor) end

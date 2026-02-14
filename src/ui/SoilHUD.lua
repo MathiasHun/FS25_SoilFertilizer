@@ -144,14 +144,22 @@ function SoilHUD:toggleVisibility()
     SoilLogger.info("Soil HUD %s", self.visible and "shown" or "hidden")
 end
 
--- Draw HUD (called every frame)
+--- Draw HUD (called every frame from main update loop)
+--- RENDER ORDER NOTES:
+--- - FS25 Giants Engine does not provide explicit Z-order/layer APIs for Overlays
+--- - Render order is determined by callback timing and call order within frame
+--- - This HUD renders during standard draw() phase, AFTER game UI initialization
+--- - Visibility checks ensure we don't render over critical game UI elements
+--- - If experiencing conflicts with other mods, adjust HUD position via settings
+--- - Common compatible mods tested: Courseplay, AutoDrive, GPS mod, Precision Farming
+---@return nil
 function SoilHUD:draw()
     if not self.initialized then return end
     if not self.settings.enabled then return end
     if not self.settings.showHUD then return end  -- Check persistent HUD setting
     if not self.visible then return end  -- Check runtime visibility toggle (F8)
 
-    -- Don't draw over menus/dialogs
+    -- Don't draw over menus/dialogs (critical - prevents rendering over pause menu, shop, etc)
     if g_gui and (g_gui:getIsGuiVisible() or g_gui:getIsDialogVisible()) then
         return
     end
@@ -182,6 +190,21 @@ function SoilHUD:draw()
         if g_currentMission.camera and g_currentMission.camera.isActivated == false then
             return
         end
+
+        -- Hide if help menu is open (prevents overlay conflicts)
+        if g_currentMission.hud and g_currentMission.hud.contextActionDisplay then
+            if g_currentMission.hud.contextActionDisplay.visible then
+                -- Context help is showing, be respectful and hide
+                return
+            end
+        end
+    end
+
+    -- Defensive mod compatibility: Check for other common mod UIs
+    -- If Courseplay HUD is in full-screen mode, hide our HUD
+    if g_Courseplay and g_Courseplay.globalSettings and g_Courseplay.globalSettings.showMiniHud == false then
+        -- Courseplay is in full HUD mode, likely taking up screen space
+        return
     end
 
     -- Get current field
@@ -193,24 +216,48 @@ end
 
 -- Draw the HUD panel
 function SoilHUD:drawPanel(fieldId)
-    -- Draw background overlay
+    -- Get customization settings
+    local colorTheme = self.settings.hudColorTheme or 1
+    local fontSize = self.settings.hudFontSize or 2
+    local transparency = self.settings.hudTransparency or 3
+    local compactMode = self.settings.hudCompactMode or false
+
+    -- Apply transparency to background overlay
     if self.backgroundOverlay then
+        local alpha = SoilConstants.HUD.TRANSPARENCY_LEVELS[transparency]
+        self.backgroundOverlay:setColor(0, 0, 0, alpha)
         self.backgroundOverlay:render()
+    end
+
+    -- Get color theme
+    local theme = SoilConstants.HUD.COLOR_THEMES[colorTheme]
+    local themeR, themeG, themeB = theme.r, theme.g, theme.b
+
+    -- Get font size multiplier
+    local fontMult = SoilConstants.HUD.FONT_SIZE_MULTIPLIERS[fontSize]
+
+    -- Get line height based on compact mode
+    local lineHeight = compactMode and SoilConstants.HUD.COMPACT_LINE_HEIGHT or SoilConstants.HUD.NORMAL_LINE_HEIGHT
+
+    -- Enable text shadow for low transparency (better readability)
+    local needsShadow = transparency <= 2
+    if needsShadow then
+        setTextShadow(true)
     end
 
     local x = self.panelX + 0.005  -- Small padding
     local y = self.panelY + self.panelHeight - 0.018  -- Start from top
-    local lineHeight = 0.016
 
-    -- Title
-    setTextBold(false)
+    -- Title (always white, bold)
+    setTextBold(true)
     setTextAlignment(RenderText.ALIGN_LEFT)
     setTextColor(1.0, 1.0, 1.0, 1.0)
-    renderText(x, y, 0.014, "SOIL INFO")
+    renderText(x, y, 0.014 * fontMult, "SOIL INFO")
     y = y - lineHeight * 1.3
 
-    -- Data color
-    setTextColor(0.8, 0.8, 0.8, 1.0)
+    -- Data color (use theme)
+    setTextBold(false)
+    setTextColor(themeR, themeG, themeB, 1.0)
 
     -- DEBUG: Only log when debug mode enabled
     if self.settings.debugMode then
@@ -219,7 +266,7 @@ function SoilHUD:drawPanel(fieldId)
 
     if not fieldId or fieldId == 0 then
         -- Not in a field
-        renderText(x, y, 0.012, "No field detected")
+        renderText(x, y, 0.012 * fontMult, "No field detected")
         if self.settings.debugMode then
             SoilLogger.info("[HUD DEBUG] No field ID detected")
         end
@@ -239,33 +286,44 @@ function SoilHUD:drawPanel(fieldId)
         end
 
         if not fieldInfo then
-            renderText(x, y, 0.012, string.format("Field %d", fieldId))
+            renderText(x, y, 0.012 * fontMult, string.format("Field %d", fieldId))
             y = y - lineHeight
-            renderText(x, y, 0.012, "No data available")
+            renderText(x, y, 0.012 * fontMult, "No data available")
         else
             -- Show field data
-            renderText(x, y, 0.012, string.format("Field %d", fieldId))
+            renderText(x, y, 0.012 * fontMult, string.format("Field %d", fieldId))
             y = y - lineHeight
 
-            renderText(x, y, 0.012, string.format("N: %d", fieldInfo.nitrogen.value))
+            renderText(x, y, 0.012 * fontMult, string.format("N: %d", fieldInfo.nitrogen.value))
             y = y - lineHeight
 
-            renderText(x, y, 0.012, string.format("P: %d", fieldInfo.phosphorus.value))
+            renderText(x, y, 0.012 * fontMult, string.format("P: %d", fieldInfo.phosphorus.value))
             y = y - lineHeight
 
-            renderText(x, y, 0.012, string.format("K: %d", fieldInfo.potassium.value))
+            renderText(x, y, 0.012 * fontMult, string.format("K: %d", fieldInfo.potassium.value))
             y = y - lineHeight
 
-            renderText(x, y, 0.012, string.format("pH: %.1f", fieldInfo.pH))
+            renderText(x, y, 0.012 * fontMult, string.format("pH: %.1f", fieldInfo.pH))
             y = y - lineHeight
 
-            renderText(x, y, 0.012, string.format("OM: %.1f%%", fieldInfo.organicMatter))
+            -- Organic matter line (compact mode: combine with last crop)
+            if compactMode and fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" then
+                renderText(x, y, 0.012 * fontMult, string.format("OM: %.1f%% | %s", fieldInfo.organicMatter, fieldInfo.lastCrop))
+            else
+                renderText(x, y, 0.012 * fontMult, string.format("OM: %.1f%%", fieldInfo.organicMatter))
 
-            if fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" then
-                y = y - lineHeight
-                renderText(x, y, 0.011, string.format("%s", fieldInfo.lastCrop))
+                -- Show last crop on separate line (non-compact mode)
+                if fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" then
+                    y = y - lineHeight
+                    renderText(x, y, 0.011 * fontMult, string.format("%s", fieldInfo.lastCrop))
+                end
             end
         end
+    end
+
+    -- Disable text shadow if it was enabled
+    if needsShadow then
+        setTextShadow(false)
     end
 
     -- Reset text settings
