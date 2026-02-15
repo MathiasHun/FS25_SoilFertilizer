@@ -48,7 +48,8 @@ function SoilFertilitySystem:initialize()
     end
 
     -- Install hooks via HookManager
-    self.hookManager:installAll(self)
+    -- Pass PFActive flag to skip nutrient-modifying hooks if in Viewer Mode
+    self.hookManager:installAll(self, self.PFActive)
 
     self.isInitialized = true
     self:info("Soil Fertility System initialized successfully")
@@ -285,7 +286,14 @@ function SoilFertilitySystem:update(dt)
 end
 
 -- Check for Precision Farming compatibility
+-- Note: This is typically set by SoilFertilityManager before initialize() is called
+-- This function exists as a safety check in case it's called independently
 function SoilFertilitySystem:checkPFCompatibility()
+    -- If PFActive is already set (by Manager), skip re-detection to avoid duplicate logging
+    if self.PFActive ~= nil then
+        return
+    end
+
     self.PFActive = false
 
     if g_precisionFarming then
@@ -622,35 +630,87 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
     )
 end
 
--- Read PF data
+-- Read PF data with validation and logging
 function SoilFertilitySystem:readPFFieldData(fieldId)
     if not self.PFActive or not g_precisionFarming then return nil end
 
-    if g_precisionFarming.fieldData and g_precisionFarming.fieldData[fieldId] then
-        local pf = g_precisionFarming.fieldData[fieldId]
-        return {
-            nitrogen = pf.nitrogen,
-            phosphorus = pf.phosphorus,
-            potassium = pf.potassium,
-            pH = pf.pH,
-            organicMatter = pf.organicMatter
-        }
-    end
+    local rawData = nil
+    local apiPath = "none"
 
-    if g_precisionFarming.soilMap and g_precisionFarming.soilMap.getFieldData then
-        local data = g_precisionFarming.soilMap:getFieldData(fieldId)
-        if data then
-            return {
-                nitrogen = data.nitrogen,
-                phosphorus = data.phosphorus,
-                potassium = data.potassium,
-                pH = data.pH,
-                organicMatter = data.organicMatter
-            }
+    -- Try API path 1: g_precisionFarming.fieldData[fieldId]
+    if g_precisionFarming.fieldData and g_precisionFarming.fieldData[fieldId] then
+        rawData = g_precisionFarming.fieldData[fieldId]
+        apiPath = "fieldData"
+    -- Try API path 2: g_precisionFarming.soilMap:getFieldData(fieldId)
+    elseif g_precisionFarming.soilMap and g_precisionFarming.soilMap.getFieldData then
+        rawData = g_precisionFarming.soilMap:getFieldData(fieldId)
+        if rawData then
+            apiPath = "soilMap.getFieldData"
         end
     end
 
-    return nil
+    -- No data found via either API
+    if not rawData then
+        if self.settings.debugMode then
+            self:debug("PF data not available for field %d (tried both API paths)", fieldId)
+        end
+        return nil
+    end
+
+    -- Validate and extract PF data
+    local pfData = {
+        nitrogen = rawData.nitrogen,
+        phosphorus = rawData.phosphorus,
+        potassium = rawData.potassium,
+        pH = rawData.pH,
+        organicMatter = rawData.organicMatter
+    }
+
+    -- Validation: check for nil values
+    local missingFields = {}
+    for key, value in pairs(pfData) do
+        if value == nil then
+            table.insert(missingFields, key)
+        end
+    end
+
+    if #missingFields > 0 then
+        self:warning("PF data incomplete for field %d (missing: %s) via API: %s",
+            fieldId, table.concat(missingFields, ", "), apiPath)
+        return nil
+    end
+
+    -- Validation: check for reasonable ranges (PF uses similar 0-100 scale)
+    local outOfRange = {}
+    if pfData.nitrogen < 0 or pfData.nitrogen > 100 then
+        table.insert(outOfRange, string.format("N=%.1f", pfData.nitrogen))
+    end
+    if pfData.phosphorus < 0 or pfData.phosphorus > 100 then
+        table.insert(outOfRange, string.format("P=%.1f", pfData.phosphorus))
+    end
+    if pfData.potassium < 0 or pfData.potassium > 100 then
+        table.insert(outOfRange, string.format("K=%.1f", pfData.potassium))
+    end
+    if pfData.pH < 4.0 or pfData.pH > 9.0 then
+        table.insert(outOfRange, string.format("pH=%.1f", pfData.pH))
+    end
+    if pfData.organicMatter < 0 or pfData.organicMatter > 20 then
+        table.insert(outOfRange, string.format("OM=%.1f", pfData.organicMatter))
+    end
+
+    if #outOfRange > 0 then
+        self:warning("PF data out of expected range for field %d (%s) via API: %s",
+            fieldId, table.concat(outOfRange, ", "), apiPath)
+    end
+
+    -- Debug log successful read
+    if self.settings.debugMode then
+        self:debug("PF data read for field %d via API: %s (N=%.1f, P=%.1f, K=%.1f, pH=%.1f, OM=%.1f)",
+            fieldId, apiPath,
+            pfData.nitrogen, pfData.phosphorus, pfData.potassium, pfData.pH, pfData.organicMatter)
+    end
+
+    return pfData
 end
 
 --- Get field info for display (HUD, console, etc)

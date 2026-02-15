@@ -19,24 +19,32 @@ end
 
 --- Install all game hooks for the soil system
 --- Installs hooks for harvest, fertilizer, plowing, ownership, and weather
+--- When Precision Farming is active, skips nutrient-modifying hooks for efficiency
 --- Stores references for proper cleanup on uninstall
 ---@param soilSystem SoilFertilitySystem The soil system instance to connect hooks to
-function HookManager:installAll(soilSystem)
+---@param pfActive boolean|nil If true, skips nutrient-modifying hooks (PF Viewer Mode)
+function HookManager:installAll(soilSystem, pfActive)
     if self.installed then
         print("[SoilFertilizer] Hooks already installed, skipping re-installation")
         return
     end
 
-    print("[SoilFertilizer] Installing event hooks...")
-
-    self:installHarvestHook()
-    self:installSprayerHook()
-    self:installOwnershipHook()
-    self:installWeatherHook()
-    self:installPlowingHook()
+    if pfActive then
+        print("[SoilFertilizer] Viewer Mode (Precision Farming active) - installing minimal hooks...")
+        -- Only install ownership hook for field cleanup - skip all nutrient-modifying hooks
+        self:installOwnershipHook()
+        print("[SoilFertilizer] Viewer Mode hooks installation complete (1 hook)")
+    else
+        print("[SoilFertilizer] Installing event hooks...")
+        self:installHarvestHook()
+        self:installSprayerHook()
+        self:installOwnershipHook()
+        self:installWeatherHook()
+        self:installPlowingHook()
+        print("[SoilFertilizer] All hooks installation complete (5 hooks)")
+    end
 
     self.installed = true
-    print("[SoilFertilizer] All hooks installation complete")
 end
 
 --- Uninstall all hooks and restore original functions
