@@ -252,9 +252,9 @@ function SoilHUD:getCurrentFieldId()
                 -- Last resort: manual search through fields array
                 if g_fieldManager.fields then
                     if self.settings.debugMode then
-                        SoilLogger.debug("[HUD] Searching through %d fields manually", #g_fieldManager.fields)
+                        SoilLogger.debug("[HUD] Searching through fields manually")
                     end
-                    for _, field in ipairs(g_fieldManager.fields) do
+                    for _, field in pairs(g_fieldManager.fields) do
                         if field and field.farmland and field.farmland.id == farmlandId and field.fieldId then
                             if self.settings.debugMode then
                                 SoilLogger.debug("[HUD] getCurrentFieldId: Found field %d via manual search", field.fieldId)

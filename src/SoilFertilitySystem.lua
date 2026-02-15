@@ -316,7 +316,7 @@ function SoilFertilitySystem:scanFields()
     self:log("Scanning fields from FieldManager...")
     local count = 0
 
-    for _, field in ipairs(g_fieldManager.fields) do
+    for _, field in pairs(g_fieldManager.fields) do
         if field and field.fieldId and field.fieldId > 0 then
             self:getOrCreateField(field.fieldId, true)
             count = count + 1
@@ -716,7 +716,7 @@ function SoilFertilitySystem:listAllFields()
 
     if g_fieldManager and g_fieldManager.fields then
         print("\nFields in FieldManager:")
-        for _, field in ipairs(g_fieldManager.fields) do
+        for _, field in pairs(g_fieldManager.fields) do
             print(string.format("  Field %d: Name=%s", field.fieldId, tostring(field.name or "Unknown")))
         end
     end
