@@ -204,11 +204,14 @@ function SoilFertilityManager:onMissionLoaded()
         if self.soilSystem then
             self.soilSystem:initialize()
         end
+        
+        -- FIX: Only initialize HUD if it exists
         if self.soilHUD then
             self.soilHUD:initialize()
             -- Register F8 toggle keybind
             self:registerInputActions()
         end
+        
         if self.settings.showNotifications and g_currentMission and g_currentMission.hud then
             g_currentMission.hud:showBlinkingWarning(
                 "Soil & Fertilizer Mod Active - Type 'soilfertility' for commands | Press J for Soil HUD",
@@ -226,7 +229,10 @@ end
 
 -- Register input actions for HUD toggle
 function SoilFertilityManager:registerInputActions()
-    if not self.soilHUD then return end
+    if not self.soilHUD then 
+        SoilLogger.info("HUD not available - input actions skipped")
+        return 
+    end
 
     local _, eventId = g_inputBinding:registerActionEvent(
         InputAction.SF_TOGGLE_HUD,
@@ -302,6 +308,7 @@ end
 --- Update loop called every frame
 ---@param dt number Delta time in milliseconds
 function SoilFertilityManager:update(dt)
+    -- Always update soil system (server side)
     if self.soilSystem then
         self.soilSystem:update(dt)
     end
@@ -311,16 +318,28 @@ function SoilFertilityManager:update(dt)
         self.guiRetryHandler:update(dt)
     end
 
-    -- Update HUD
+    -- FIX: Only update HUD if it exists (client side only)
     if self.soilHUD then
-        self.soilHUD:update(dt)
+        -- Add pcall to prevent crashes if HUD has issues
+        local success, err = pcall(function()
+            self.soilHUD:update(dt)
+        end)
+        if not success and self.settings and self.settings.debugMode then
+            print("[SoilFertilizer DEBUG] HUD update error: " .. tostring(err))
+        end
     end
 end
 
 --- Draw loop called every frame for rendering
 function SoilFertilityManager:draw()
+    -- FIX: Only draw HUD if it exists (client side only)
     if self.soilHUD then
-        self.soilHUD:draw()
+        local success, err = pcall(function()
+            self.soilHUD:draw()
+        end)
+        if not success and self.settings and self.settings.debugMode then
+            print("[SoilFertilizer DEBUG] HUD draw error: " .. tostring(err))
+        end
     end
 end
 

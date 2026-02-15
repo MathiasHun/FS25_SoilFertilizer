@@ -237,17 +237,6 @@ function soilStatus()
     end
 end
 
--- Additional console command for saving data
-addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveData",
-    function()
-        if g_SoilFertilityManager then
-            g_SoilFertilityManager:saveSoilData()
-            return "Soil data saved"
-        end
-        return "Soil Mod not initialized"
-    end
-)
-
 -- Expose global console functions
 getfenv(0)["soilfertility"] = soilfertility
 getfenv(0)["soilStatus"] = soilStatus

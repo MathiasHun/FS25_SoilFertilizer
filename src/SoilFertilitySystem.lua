@@ -309,33 +309,78 @@ end
 ---@return boolean True if successfully scanned fields, false if fields not ready yet
 function SoilFertilitySystem:scanFields()
     if not g_fieldManager or not g_fieldManager.fields then
-        self:warning("FieldManager or fields not available")
+        self:warning("FieldManager not available yet")
         return false
     end
 
-    self:log("Scanning fields from FieldManager...")
-    local count = 0
+    if next(g_fieldManager.fields) == nil then
+        self:log("FieldManager fields table empty - not ready yet")
+        return false
+    end
 
-    for _, field in pairs(g_fieldManager.fields) do
-        if field and field.fieldId and field.fieldId > 0 then
-            self:getOrCreateField(field.fieldId, true)
-            count = count + 1
+    self:log("Scanning fields via FieldManager...")
+
+    local fieldCount = 0
+    local farmlandCount = 0
+
+    -- Count farmlands (for logging only)
+    if g_farmlandManager and g_farmlandManager.farmlands then
+        for _ in pairs(g_farmlandManager.farmlands) do
+            farmlandCount = farmlandCount + 1
         end
     end
 
-    self:info("Scanned and initialized %d fields", count)
+    -- TRUE FS25 SOURCE OF TRUTH - FIXED: Fields might be stored differently
+    -- Some maps store fields with numeric indices, others with string keys
+    for fieldId, field in pairs(g_fieldManager.fields) do
+        -- Convert fieldId to number if it's a string
+        local numericFieldId = tonumber(fieldId) or fieldId
+        
+        -- Check if this is a valid field object
+        if field and type(field) == "table" then
+            -- Try to get field ID from various possible locations
+            local actualFieldId = nil
+            
+            if field.fieldId and field.fieldId > 0 then
+                actualFieldId = field.fieldId
+            elseif type(numericFieldId) == "number" and numericFieldId > 0 then
+                actualFieldId = numericFieldId
+            elseif field.id and field.id > 0 then
+                actualFieldId = field.id
+            elseif field.index and field.index > 0 then
+                actualFieldId = field.index
+            end
+            
+            -- Also check if this field has a valid farmland (some entries might be metadata)
+            local hasFarmland = false
+            if field.farmland and field.farmland.id and field.farmland.id > 0 then
+                hasFarmland = true
+            elseif field.farmlandId and field.farmlandId > 0 then
+                hasFarmland = true
+            end
+            
+            if actualFieldId and actualFieldId > 0 and hasFarmland then
+                self:getOrCreateField(actualFieldId, true)
+                fieldCount = fieldCount + 1
+                
+                if self.settings.debugMode then
+                    print(string.format("[SoilFertilizer DEBUG] Found field %d with farmland", actualFieldId))
+                end
+            end
+        end
+    end
 
-    -- Mark scan as complete if we found fields
-    if count > 0 then
+    self:info("Scanned %d farmlands and initialized %d fields", farmlandCount, fieldCount)
+
+    if fieldCount > 0 then
         self.fieldsScanPending = false
         return true
     end
 
-    -- If no fields found, might still be loading
     return false
 end
 
--- Get or create field data
+-- Get or create field data - FIXED: Better PF integration and validation
 function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing)
     if not fieldId or fieldId <= 0 then return nil end
 
@@ -371,7 +416,7 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing)
         end
     end
 
-    -- Create new field with default values
+    -- Allow lazy creation (HUD-safe)
     local defaults = SoilConstants.FIELD_DEFAULTS
     self.fieldData[fieldId] = {
         nitrogen = defaults.nitrogen,
@@ -386,7 +431,7 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing)
         fromPF = false
     }
 
-    self:log("Created new field data for field %d", fieldId)
+    self:log("Lazy-created field %d", fieldId)
     return self.fieldData[fieldId]
 end
 
@@ -648,24 +693,50 @@ end
 function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
     if not xmlFile then return end
 
+    -- SAFETY: ensure fieldData is valid
+    if not self or type(self) ~= "table" then
+        print("[SoilFertilizer ERROR] saveToXMLFile called with invalid self")
+        return
+    end
+
+    if not self.fieldData or type(self.fieldData) ~= "table" then
+        print(string.format(
+            "[SoilFertilizer WARNING] Cannot save - fieldData invalid (type: %s)",
+            type(self.fieldData)
+        ))
+        return
+    end
+
     local defaults = SoilConstants.FIELD_DEFAULTS
     local index = 0
+
     for fieldId, field in pairs(self.fieldData) do
-        local fieldKey = string.format("%s.field(%d)", key, index)
-        setXMLInt(xmlFile, fieldKey .. "#id", fieldId)
-        setXMLFloat(xmlFile, fieldKey .. "#nitrogen", field.nitrogen or defaults.nitrogen)
-        setXMLFloat(xmlFile, fieldKey .. "#phosphorus", field.phosphorus or defaults.phosphorus)
-        setXMLFloat(xmlFile, fieldKey .. "#potassium", field.potassium or defaults.potassium)
-        setXMLFloat(xmlFile, fieldKey .. "#organicMatter", field.organicMatter or defaults.organicMatter)
-        setXMLFloat(xmlFile, fieldKey .. "#pH", field.pH or defaults.pH)
-        setXMLString(xmlFile, fieldKey .. "#lastCrop", field.lastCrop or "")
-        setXMLInt(xmlFile, fieldKey .. "#lastHarvest", field.lastHarvest or 0)
-        setXMLFloat(xmlFile, fieldKey .. "#fertilizerApplied", field.fertilizerApplied or 0)
-        index = index + 1
+        if type(field) == "table" then
+            local fieldKey = string.format("%s.field(%d)", key, index)
+
+            setXMLInt(xmlFile, fieldKey .. "#id", fieldId)
+            setXMLFloat(xmlFile, fieldKey .. "#nitrogen", field.nitrogen or defaults.nitrogen)
+            setXMLFloat(xmlFile, fieldKey .. "#phosphorus", field.phosphorus or defaults.phosphorus)
+            setXMLFloat(xmlFile, fieldKey .. "#potassium", field.potassium or defaults.potassium)
+            setXMLFloat(xmlFile, fieldKey .. "#organicMatter", field.organicMatter or defaults.organicMatter)
+            setXMLFloat(xmlFile, fieldKey .. "#pH", field.pH or defaults.pH)
+            setXMLString(xmlFile, fieldKey .. "#lastCrop", field.lastCrop or "")
+            setXMLInt(xmlFile, fieldKey .. "#lastHarvest", field.lastHarvest or 0)
+            setXMLFloat(xmlFile, fieldKey .. "#fertilizerApplied", field.fertilizerApplied or 0)
+
+            index = index + 1
+        else
+            print(string.format(
+                "[SoilFertilizer WARNING] Skipping corrupted field entry %s (type: %s)",
+                tostring(fieldId),
+                type(field)
+            ))
+        end
     end
 
     self:info("Saved data for %d fields", index)
 end
+
 
 -- Load from XML file
 function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)

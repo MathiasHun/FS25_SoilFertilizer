@@ -78,17 +78,19 @@ function SoilHUD:delete()
     SoilLogger.info("Soil HUD overlay deleted")
 end
 
--- Get current field ID based on player/vehicle position
-function SoilHUD:getCurrentFieldId()
+-- Get current farmland ID based on player/vehicle position
+-- NOTE: Changed from getCurrentFieldId to getCurrentFarmlandId to match base game behavior
+-- Base game shows "Farmland 1", "Farmland 2" etc, not field IDs
+function SoilHUD:getCurrentFarmlandId()
     if not g_currentMission then
         if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFieldId: g_currentMission is nil")
+            SoilLogger.debug("[HUD] getCurrentFarmlandId: g_currentMission is nil")
         end
         return nil
     end
-    if not g_fieldManager then
+    if not g_farmlandManager then
         if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFieldId: g_fieldManager is nil")
+            SoilLogger.debug("[HUD] getCurrentFarmlandId: g_farmlandManager is nil")
         end
         return nil
     end
@@ -192,90 +194,44 @@ function SoilHUD:getCurrentFieldId()
     -- No position available
     if not x then
         if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFieldId: No position available from any source")
+            SoilLogger.debug("[HUD] getCurrentFarmlandId: No position available from any source")
         end
         return nil
     end
 
     if self.settings.debugMode then
-        SoilLogger.debug("[HUD] getCurrentFieldId: Position from %s: x=%.1f, z=%.1f", source, x, z)
+        SoilLogger.debug("[HUD] getCurrentFarmlandId: Position from %s: x=%.1f, z=%.1f", source, x, z)
     end
 
-    -- Try direct field position lookup first (most accurate)
-    if g_fieldManager.getFieldAtWorldPosition then
-        local field = g_fieldManager:getFieldAtWorldPosition(x, z)
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getFieldAtWorldPosition returned: %s", field and "field object" or "nil")
-            if field then
-                SoilLogger.debug("[HUD] field.fieldId = %s", tostring(field.fieldId))
-            end
-        end
-        if field and field.fieldId then
-            if self.settings.debugMode then
-                SoilLogger.debug("[HUD] getCurrentFieldId: Found field %d via getFieldAtWorldPosition", field.fieldId)
-            end
-            return field.fieldId
-        end
-    else
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getFieldAtWorldPosition API not available")
+    -- Use farmland API to get farmland ID at world position
+    -- This is the correct FS25 API - returns the farmland ID directly
+    local farmlandId = nil
+    
+    -- Safely call the API (it might not be available in all game states)
+    if g_farmlandManager.getFarmlandIdAtWorldPosition then
+        farmlandId = g_farmlandManager:getFarmlandIdAtWorldPosition(x, z)
+    elseif g_farmlandManager.getFarmlandAtWorldPosition then
+        -- Fallback for older API naming (if it exists)
+        local farmland = g_farmlandManager:getFarmlandAtWorldPosition(x, z)
+        if farmland and farmland.id then
+            farmlandId = farmland.id
         end
     end
+    
+    if self.settings.debugMode then
+        SoilLogger.debug("[HUD] getFarmlandIdAtWorldPosition returned: %s", tostring(farmlandId))
+    end
 
-    -- Fallback: Use farmland-based lookup (same pattern as HookManager)
-    if g_farmlandManager then
-        local farmlandId = g_farmlandManager:getFarmlandIdAtWorldPosition(x, z)
+    -- Validate farmland ID (must be > 0, as 0 or nil means no farmland)
+    if farmlandId and farmlandId > 0 then
         if self.settings.debugMode then
-            SoilLogger.debug("[HUD] farmlandId at position: %s", tostring(farmlandId))
+            SoilLogger.debug("[HUD] getCurrentFarmlandId: Found farmland %d at position", farmlandId)
         end
-
-        if farmlandId and farmlandId > 0 then
-            -- Use the proper API (same as HookManager uses)
-            if g_fieldManager.getFieldByFarmland then
-                local field = g_fieldManager:getFieldByFarmland(farmlandId)
-                if self.settings.debugMode then
-                    SoilLogger.debug("[HUD] getFieldByFarmland(%d) returned: %s", farmlandId, field and "field object" or "nil")
-                    if field then
-                        SoilLogger.debug("[HUD] field.fieldId = %s", tostring(field.fieldId))
-                    end
-                end
-                if field and field.fieldId then
-                    if self.settings.debugMode then
-                        SoilLogger.debug("[HUD] getCurrentFieldId: Found field %d via getFieldByFarmland", field.fieldId)
-                    end
-                    return field.fieldId
-                end
-            else
-                if self.settings.debugMode then
-                    SoilLogger.debug("[HUD] getFieldByFarmland API not available, using manual search")
-                end
-                -- Last resort: manual search through fields array
-                if g_fieldManager.fields then
-                    if self.settings.debugMode then
-                        SoilLogger.debug("[HUD] Searching through fields manually")
-                    end
-                    for _, field in pairs(g_fieldManager.fields) do
-                        if field and field.farmland and field.farmland.id == farmlandId and field.fieldId then
-                            if self.settings.debugMode then
-                                SoilLogger.debug("[HUD] getCurrentFieldId: Found field %d via manual search", field.fieldId)
-                            end
-                            return field.fieldId
-                        end
-                    end
-                    if self.settings.debugMode then
-                        SoilLogger.debug("[HUD] Manual search: No field found with farmlandId %d", farmlandId)
-                    end
-                end
-            end
-        end
-    else
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] g_farmlandManager not available")
-        end
+        return farmlandId
     end
 
     if self.settings.debugMode then
-        SoilLogger.debug("[HUD] getCurrentFieldId: No field detected at position")
+        SoilLogger.debug("[HUD] getCurrentFarmlandId: No farmland detected at position")
     end
     return nil
 end
@@ -306,24 +262,44 @@ end
 --- - If experiencing conflicts with other mods, adjust HUD position via settings
 --- - Common compatible mods tested: Courseplay, AutoDrive, GPS mod, Precision Farming
 ---@return nil
+--- Draw HUD (called every frame from main update loop)
 function SoilHUD:draw()
+    -- Basic initialization and visibility checks first
     if not self.initialized then return end
     if not self.settings.enabled then return end
     if not self.settings.showHUD then return end  -- Check persistent HUD setting
     if not self.visible then return end  -- Check runtime visibility toggle (F8)
 
-    -- Don't draw if mission objects aren't ready yet (prevents errors during loading/transitions)
+    -- Don't draw if mission objects aren't ready yet
     if not g_currentMission then return end
 
-    -- Don't draw if player/vehicle don't exist yet (early game states, loading, etc)
-    -- This prevents unnecessary position detection attempts and debug spam
-    if not g_currentMission.player and not g_currentMission.controlledVehicle then
+    -- FIX: Less aggressive player/vehicle check
+    -- Instead of requiring both player and vehicle, just try to get position
+    -- If we can't get position, we'll show a "waiting" message
+    local hasPositionSource = false
+    
+    -- Check if we have any way to get position
+    if g_localPlayer then
+        hasPositionSource = true
+    elseif g_currentMission.player then
+        hasPositionSource = true
+    elseif g_currentMission.controlledVehicle then
+        hasPositionSource = true
+    elseif g_currentMission.camera then
+        hasPositionSource = true
+    end
+    
+    -- If no position source at all, don't draw (prevents errors)
+    if not hasPositionSource then
         return
     end
 
-    -- Don't draw over menus/dialogs (critical - prevents rendering over pause menu, shop, etc)
-    if g_gui and (g_gui:getIsGuiVisible() or g_gui:getIsDialogVisible()) then
-        return
+    -- Don't draw over critical UI elements
+    if g_gui then
+        -- Check for menus/dialogs
+        if g_gui:getIsGuiVisible() or g_gui:getIsDialogVisible() then
+            return
+        end
     end
 
     -- Don't draw when large map is open
@@ -334,50 +310,67 @@ function SoilHUD:draw()
         end
     end
 
-    -- Smart context-aware hiding
+    -- FIX: Make context-aware hiding optional or less aggressive
+    -- Only hide during critical moments
     if g_currentMission then
-        -- Hide during tutorials
+        -- Hide during tutorials only if they're actually covering the screen
         if g_currentMission.inGameMessage and g_currentMission.inGameMessage.visible then
-            return
-        end
-
-        -- Hide in construction mode (placeable placement/editing)
-        if g_currentMission.controlledVehicle == nil and g_currentMission.player then
-            if g_currentMission.player.isCarryingObject or g_currentMission.player.isObjectInRange then
+            -- Check if it's a full-screen tutorial message
+            local messageType = g_currentMission.inGameMessage.type
+            if messageType == "FULLSCREEN" or messageType == "LARGE" then
                 return
             end
         end
 
-        -- Hide if camera is in special modes (cinema mode, photo mode, etc)
-        if g_currentMission.camera and g_currentMission.camera.isActivated == false then
-            return
+        -- Hide in construction mode only when actively placing
+        if g_currentMission.controlledVehicle == nil and g_currentMission.player then
+            if g_currentMission.player.isCarryingObject then
+                -- Check if actually in placement mode
+                local placementMode = false
+                local player = g_currentMission.player
+
+                if player.getIsPlacementMode ~= nil then
+                    placementMode = player:getIsPlacementMode()
+                end
+                if placementMode then
+                    return
+                end
+            end
         end
 
-        -- Hide if help menu is open (prevents overlay conflicts)
+        -- Don't hide for context help - it's usually small and our HUD can coexist
+        -- Comment out this block to always show HUD even with context help
         if g_currentMission.hud and g_currentMission.hud.contextActionDisplay then
             if g_currentMission.hud.contextActionDisplay.visible then
-                -- Context help is showing, be respectful and hide
                 return
             end
         end
     end
 
-    -- Defensive mod compatibility: Check for other common mod UIs
-    -- If Courseplay HUD is in full-screen mode, hide our HUD
-    if g_Courseplay and g_Courseplay.globalSettings and g_Courseplay.globalSettings.showMiniHud == false then
-        -- Courseplay is in full HUD mode, likely taking up screen space
-        return
+    -- FIX: Make mod compatibility checks optional via setting
+    -- You could add a setting for this
+    local checkModCompatibility = false  -- Set to false to disable mod checks
+    if checkModCompatibility then
+        -- Defensive mod compatibility: Check for other common mod UIs
+        if g_Courseplay and g_Courseplay.globalSettings and g_Courseplay.globalSettings.showMiniHud == false then
+            return
+        end
     end
 
-    -- Get current field
-    local fieldId = self:getCurrentFieldId()
+    -- Get current farmland - this will also try to get position
+    local farmlandId = self:getCurrentFarmlandId()
 
-    -- Draw panel (even if no field - show "No Field" message)
-    self:drawPanel(fieldId)
+    -- Draw panel (always draw, even if no farmland)
+    -- This ensures the HUD is visible
+    self:drawPanel(farmlandId)
 end
 
 -- Draw the HUD panel
-function SoilHUD:drawPanel(fieldId)
+-- NOTE: Updated to use farmlandId instead of fieldId
+-- Draw the HUD panel
+-- FIXED: Now properly finds field based on position, not just farmland
+-- Draw the HUD panel
+function SoilHUD:drawPanel(farmlandId)
     -- Get customization settings
     local colorTheme = self.settings.hudColorTheme or 1
     local fontSize = self.settings.hudFontSize or 2
@@ -407,15 +400,16 @@ function SoilHUD:drawPanel(fieldId)
         setTextShadow(true)
     end
 
-    local x = self.panelX + 0.005  -- Small padding
-    local y = self.panelY + self.panelHeight - 0.018  -- Start from top
+    -- FIX: Rename these variables to avoid conflict with world position variables
+    local screenX = self.panelX + 0.005  -- Small padding
+    local screenY = self.panelY + self.panelHeight - 0.018  -- Start from top
 
     -- Title (always white, bold)
     setTextBold(true)
     setTextAlignment(RenderText.ALIGN_LEFT)
     setTextColor(1.0, 1.0, 1.0, 1.0)
-    renderText(x, y, 0.014 * fontMult, "SOIL INFO")
-    y = y - lineHeight * 1.3
+    renderText(screenX, screenY, 0.014 * fontMult, "SOIL INFO")
+    screenY = screenY - lineHeight * 1.3
 
     -- Data color (use theme)
     setTextBold(false)
@@ -423,61 +417,179 @@ function SoilHUD:drawPanel(fieldId)
 
     -- DEBUG: Only log when debug mode enabled
     if self.settings.debugMode then
-        SoilLogger.info("[HUD DEBUG] fieldId=%s, soilSystem=%s", tostring(fieldId), tostring(self.soilSystem ~= nil))
+        SoilLogger.info("[HUD DEBUG] farmlandId=%s, soilSystem=%s", tostring(farmlandId), tostring(self.soilSystem ~= nil))
     end
 
-    if not fieldId or fieldId == 0 then
-        -- Not in a field
-        renderText(x, y, 0.012 * fontMult, "No field detected")
+    if not farmlandId or farmlandId == 0 then
+        -- Not in a farmland
+        renderText(screenX, screenY, 0.012 * fontMult, "No farmland detected")
         if self.settings.debugMode then
-            SoilLogger.info("[HUD DEBUG] No field ID detected")
+            SoilLogger.info("[HUD DEBUG] No farmland ID detected")
         end
     else
-        -- Get field data
-        local fieldInfo = self.soilSystem:getFieldInfo(fieldId)
-
+        -- Check if soil system has initialized any fields yet
+        local fieldCount = self.soilSystem:getFieldCount()
+        if fieldCount == 0 then
+            -- Soil system still initializing fields
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("Farmland %d", farmlandId))
+            screenY = screenY - lineHeight
+            renderText(screenX, screenY, 0.011 * fontMult, "System initializing...")
+            screenY = screenY - lineHeight
+            renderText(screenX, screenY, 0.010 * fontMult, string.format("(%d fields ready)", fieldCount))
+            setTextAlignment(RenderText.ALIGN_LEFT)
+            setTextBold(false)
+            setTextColor(1, 1, 1, 1)
+            if needsShadow then
+                setTextShadow(false)
+            end
+            return
+        end
+        
+        -- FIX: Get the current position first - use different variable names
+        local worldX, worldZ = self:getCurrentPosition()
+        
+        -- Then find which field contains this position
+        local fieldId = nil
+        local field = nil
+        
+        if worldX and worldZ then
+            -- Method 1: Use FieldManager's getFieldAtWorldPosition if available
+            if g_fieldManager and g_fieldManager.getFieldAtWorldPosition then
+                field = g_fieldManager:getFieldAtWorldPosition(worldX, worldZ)
+                if field and field.fieldId then
+                    fieldId = field.fieldId
+                end
+            end
+            
+            -- Method 2: Fallback - iterate through fields and check if position is in field polygon
+            if not fieldId and g_fieldManager and g_fieldManager.fields then
+                for _, f in pairs(g_fieldManager.fields) do
+                    if f and f.fieldId and f.getContainsPoint then
+                        -- Check if this field contains our position
+                        if f:getContainsPoint(worldX, worldZ) then
+                            fieldId = f.fieldId
+                            field = f
+                            break
+                        end
+                    end
+                end
+            end
+            
+            -- Method 3: Last resort - find first field that belongs to this farmland
+            if not fieldId and g_fieldManager and g_fieldManager.fields then
+                for _, f in pairs(g_fieldManager.fields) do
+                    if f and f.farmland and f.farmland.id == farmlandId and f.fieldId then
+                        fieldId = f.fieldId
+                        field = f
+                        break
+                    end
+                end
+            end
+        else
+            -- Can't get position, fall back to farmland-to-field mapping
+            if g_fieldManager and g_fieldManager.getFieldByFarmland then
+                field = g_fieldManager:getFieldByFarmland(farmlandId)
+                if field and field.fieldId then
+                    fieldId = field.fieldId
+                end
+            end
+            
+            -- If still no field, find first field in this farmland
+            if not fieldId and g_fieldManager and g_fieldManager.fields then
+                for _, f in pairs(g_fieldManager.fields) do
+                    if f and f.farmland and f.farmland.id == farmlandId and f.fieldId then
+                        fieldId = f.fieldId
+                        field = f
+                        break
+                    end
+                end
+            end
+        end
+        
         if self.settings.debugMode then
-            SoilLogger.info("[HUD DEBUG] Field %d, fieldInfo=%s", fieldId, tostring(fieldInfo ~= nil))
+            SoilLogger.info("[HUD DEBUG] Farmland %d, derived fieldId=%s", farmlandId, tostring(fieldId))
+        end
 
-            if fieldInfo then
-                SoilLogger.info("[HUD DEBUG] Field data: N=%d, P=%d, K=%d",
-                    fieldInfo.nitrogen and fieldInfo.nitrogen.value or -1,
-                    fieldInfo.phosphorus and fieldInfo.phosphorus.value or -1,
-                    fieldInfo.potassium and fieldInfo.potassium.value or -1)
+        -- Get soil data from our system
+        local fieldInfo = nil
+        if fieldId and fieldId > 0 then
+            -- Try to get field info
+            fieldInfo = self.soilSystem:getFieldInfo(fieldId)
+            
+            -- If field info is nil, try to initialize the field
+            if not fieldInfo and self.soilSystem.getOrCreateField then
+                local field = self.soilSystem:getOrCreateField(fieldId, true)
+                if field then
+                    -- Try again after creation
+                    fieldInfo = self.soilSystem:getFieldInfo(fieldId)
+                end
             end
         end
 
+        if self.settings.debugMode then
+            if fieldInfo then
+                SoilLogger.info("[HUD DEBUG] Field %d data: N=%d, P=%d, K=%d",
+                    fieldId or -1,
+                    fieldInfo.nitrogen and fieldInfo.nitrogen.value or -1,
+                    fieldInfo.phosphorus and fieldInfo.phosphorus.value or -1,
+                    fieldInfo.potassium and fieldInfo.potassium.value or -1)
+            else
+                SoilLogger.info("[HUD DEBUG] No field info for fieldId=%s (farmland %d)",
+                    tostring(fieldId), farmlandId)
+            end
+        end
+
+        -- Display farmland number (to match base game "Farmland 1" style)
+        renderText(screenX, screenY, 0.012 * fontMult, string.format("Farmland %d", farmlandId))
+        screenY = screenY - lineHeight
+
         if not fieldInfo then
-            renderText(x, y, 0.012 * fontMult, string.format("Field %d", fieldId))
-            y = y - lineHeight
-            renderText(x, y, 0.012 * fontMult, "No data available")
+            -- Show why data isn't available
+            if not fieldId then
+                renderText(screenX, screenY, 0.012 * fontMult, "No field data")
+                screenY = screenY - lineHeight
+                renderText(screenX, screenY, 0.011 * fontMult, "(Not cultivatable)")
+            else
+                renderText(screenX, screenY, 0.012 * fontMult, string.format("Field %d", fieldId))
+                screenY = screenY - lineHeight
+                renderText(screenX, screenY, 0.011 * fontMult, "Initializing...")
+            end
         else
-            -- Show field data
-            renderText(x, y, 0.012 * fontMult, string.format("Field %d", fieldId))
-            y = y - lineHeight
+            -- Show field ID if available (for debugging/info)
+            if fieldId then
+                renderText(screenX, screenY, 0.011 * fontMult, string.format("(Field %d)", fieldId))
+                screenY = screenY - lineHeight
+            end
+            
+            -- Show soil data with safe value extraction
+            local nVal = (fieldInfo.nitrogen and fieldInfo.nitrogen.value) or 0
+            local pVal = (fieldInfo.phosphorus and fieldInfo.phosphorus.value) or 0
+            local kVal = (fieldInfo.potassium and fieldInfo.potassium.value) or 0
+            local phVal = fieldInfo.pH or 0
+            local omVal = fieldInfo.organicMatter or 0
+            
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("N: %d", nVal))
+            screenY = screenY - lineHeight
 
-            renderText(x, y, 0.012 * fontMult, string.format("N: %d", fieldInfo.nitrogen.value))
-            y = y - lineHeight
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("P: %d", pVal))
+            screenY = screenY - lineHeight
 
-            renderText(x, y, 0.012 * fontMult, string.format("P: %d", fieldInfo.phosphorus.value))
-            y = y - lineHeight
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("K: %d", kVal))
+            screenY = screenY - lineHeight
 
-            renderText(x, y, 0.012 * fontMult, string.format("K: %d", fieldInfo.potassium.value))
-            y = y - lineHeight
-
-            renderText(x, y, 0.012 * fontMult, string.format("pH: %.1f", fieldInfo.pH))
-            y = y - lineHeight
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("pH: %.1f", phVal))
+            screenY = screenY - lineHeight
 
             -- Organic matter line (compact mode: combine with last crop)
-            if compactMode and fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" then
-                renderText(x, y, 0.012 * fontMult, string.format("OM: %.1f%% | %s", fieldInfo.organicMatter, fieldInfo.lastCrop))
+            if compactMode and fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" and fieldInfo.lastCrop ~= "" then
+                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%% | %s", omVal, fieldInfo.lastCrop))
             else
-                renderText(x, y, 0.012 * fontMult, string.format("OM: %.1f%%", fieldInfo.organicMatter))
+                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%", omVal))
 
                 -- Show last crop on separate line (non-compact mode)
-                if fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" then
-                    y = y - lineHeight
-                    renderText(x, y, 0.011 * fontMult, string.format("%s", fieldInfo.lastCrop))
+                if fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" and fieldInfo.lastCrop ~= "" then
+                    screenY = screenY - lineHeight
+                    renderText(screenX, screenY, 0.011 * fontMult, string.format("%s", fieldInfo.lastCrop))
                 end
             end
         end
@@ -492,4 +604,65 @@ function SoilHUD:drawPanel(fieldId)
     setTextAlignment(RenderText.ALIGN_LEFT)
     setTextBold(false)
     setTextColor(1, 1, 1, 1)
+end
+
+-- Helper function to get current position (extracted from getCurrentFarmlandId logic)
+function SoilHUD:getCurrentPosition()
+    local x, z
+
+    -- Try g_localPlayer first
+    if g_localPlayer then
+        local success, px, py, pz = pcall(function()
+            if g_localPlayer.getPosition then
+                return g_localPlayer:getPosition()
+            elseif g_localPlayer.rootNode and g_localPlayer.rootNode ~= 0 then
+                return getWorldTranslation(g_localPlayer.rootNode)
+            end
+            return nil, nil, nil
+        end)
+
+        if success and px then
+            x, z = px, pz
+            return x, z
+        elseif g_localPlayer.getIsInVehicle and g_localPlayer:getIsInVehicle() then
+            local vehicle = g_localPlayer:getCurrentVehicle()
+            if vehicle and vehicle.rootNode and vehicle.rootNode ~= 0 then
+                success, px, py, pz = pcall(getWorldTranslation, vehicle.rootNode)
+                if success and px then
+                    x, z = px, pz
+                    return x, z
+                end
+            end
+        end
+    end
+
+    -- Try player
+    if not x then
+        local player = g_currentMission.player
+        if player and player.rootNode then
+            local success, px, _, pz = pcall(getWorldTranslation, player.rootNode)
+            if success and px then
+                x, z = px, pz
+                return x, z
+            end
+        elseif player and player.baseInformation and player.baseInformation.lastPositionX then
+            x = player.baseInformation.lastPositionX
+            z = player.baseInformation.lastPositionZ
+            return x, z
+        end
+    end
+
+    -- Try vehicle
+    if not x then
+        local vehicle = g_currentMission.controlledVehicle
+        if vehicle and vehicle.rootNode then
+            local success, vx, _, vz = pcall(getWorldTranslation, vehicle.rootNode)
+            if success and vx then
+                x, z = vx, vz
+                return x, z
+            end
+        end
+    end
+
+    return nil, nil
 end
