@@ -166,16 +166,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
     if pfDetected then
         SoilLogger.info("Precision Farming detected - enabling read-only mode")
         self.soilSystem.PFActive = true
-        if self.settings.showNotifications then
-            if g_currentMission and g_currentMission.hud then
-                g_currentMission.hud:showBlinkingWarning(
-                    "PF Detected - Soil & Fertilizer Mod running in read-only mode",
-                    8000
-                )
-            else
-                SoilLogger.info("PF Detected - running in read-only mode")
-            end
-        end
+        -- Note: Notification is shown later in onMissionLoaded (consolidates PF + activation message)
     else
         self.soilSystem.PFActive = false
     end
@@ -212,11 +203,15 @@ function SoilFertilityManager:onMissionLoaded()
             self:registerInputActions()
         end
         
+        -- Show single consolidated notification (different message if PF is active)
         if self.settings.showNotifications and g_currentMission and g_currentMission.hud then
-            g_currentMission.hud:showBlinkingWarning(
-                "Soil & Fertilizer Mod Active - Type 'soilfertility' for commands | Press J for Soil HUD",
-                8000
-            )
+            local message
+            if self.soilSystem.PFActive then
+                message = "Soil Mod: Viewer Mode (Precision Farming active) | Press J for HUD"
+            else
+                message = "Soil & Fertilizer Mod Active | Press J for HUD | Type 'soilfertility' for commands"
+            end
+            g_currentMission.hud:showBlinkingWarning(message, 8000)
         end
     end)
 

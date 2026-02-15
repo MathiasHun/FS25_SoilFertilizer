@@ -81,8 +81,8 @@ function SoilSettingsUI:togglePFProtected(settingKey, val)
     if pfActive then
         if g_currentMission and g_currentMission.hud then
             g_currentMission.hud:showBlinkingWarning(
-                "Precision Farming active - cannot change this setting",
-                4000
+                "Viewer Mode: Precision Farming is managing soil data - this setting is locked",
+                5000
             )
         end
         self:refreshUI()
@@ -134,6 +134,18 @@ function SoilSettingsUI:inject()
         table.insert(self.uiElements, infoText)
     end
 
+    -- Add Viewer Mode banner if Precision Farming is active
+    if pfActive then
+        local pfInfoText = UIHelper.createDescription(layout, "sf_pf_viewer_mode_info")
+        if pfInfoText and pfInfoText.setText then
+            pfInfoText:setText("VIEWER MODE: Precision Farming is managing soil data - settings locked")
+            if pfInfoText.textColor then
+                pfInfoText.textColor = {0.4, 0.8, 1.0, 1.0}  -- Blue color to match info theme
+            end
+        end
+        table.insert(self.uiElements, pfInfoText)
+    end
+
     -- Auto-generate boolean toggle options from schema
     for _, def in ipairs(SettingsSchema.getBooleanSettings()) do
         local callback
@@ -158,7 +170,7 @@ function SoilSettingsUI:inject()
 
                 local tooltip = "Admin only"
                 if disabled then
-                    tooltip = "Disabled while Precision Farming is active"
+                    tooltip = "Viewer Mode - Precision Farming manages this"
                 end
 
                 if element.setToolTipText then
@@ -184,8 +196,8 @@ function SoilSettingsUI:inject()
             if pfActive then
                 if g_currentMission and g_currentMission.hud then
                     g_currentMission.hud:showBlinkingWarning(
-                        "Precision Farming active - cannot change difficulty",
-                        4000
+                        "Viewer Mode: Precision Farming is managing soil data - difficulty locked",
+                        5000
                     )
                 end
                 self:refreshUI()
@@ -198,7 +210,7 @@ function SoilSettingsUI:inject()
         if success and diffElement then
             if (not isAdmin or pfActive) and diffElement.setIsEnabled then
                 diffElement:setIsEnabled(false)
-                local tooltip = pfActive and "Disabled while Precision Farming is active" or "Admin only"
+                local tooltip = pfActive and "Viewer Mode - Precision Farming manages this" or "Admin only"
                 if diffElement.setToolTipText then
                     diffElement:setToolTipText(tooltip)
                 end

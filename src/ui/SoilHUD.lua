@@ -522,24 +522,47 @@ function SoilHUD:drawPanel(farmlandId)
             SoilLogger.info("[HUD DEBUG] Farmland %d, derived fieldId=%s", farmlandId, tostring(fieldId))
         end
 
-        -- Get soil data from our system
+        -- Get soil data - preferring live PF data if available
         local fieldInfo = nil
+        local pfData = nil
+        local usingPFData = false
+
         if fieldId and fieldId > 0 then
-            -- Try to get field info
-            fieldInfo = self.soilSystem:getFieldInfo(fieldId)
-            
-            -- If field info is nil, try to initialize the field
-            if not fieldInfo and self.soilSystem.getOrCreateField then
-                local field = self.soilSystem:getOrCreateField(fieldId, true)
-                if field then
-                    -- Try again after creation
-                    fieldInfo = self.soilSystem:getFieldInfo(fieldId)
+            -- If Precision Farming is active, try to read live PF data first
+            if self.soilSystem.PFActive then
+                pfData = self.soilSystem:readPFFieldData(fieldId)
+                if pfData then
+                    usingPFData = true
+                    if self.settings.debugMode then
+                        SoilLogger.debug("[HUD] Using live Precision Farming data for field %d", fieldId)
+                    end
+                end
+            end
+
+            -- If no PF data, fall back to SoilFertilizer data
+            if not pfData then
+                -- Try to get field info
+                fieldInfo = self.soilSystem:getFieldInfo(fieldId)
+
+                -- If field info is nil, try to initialize the field
+                if not fieldInfo and self.soilSystem.getOrCreateField then
+                    local field = self.soilSystem:getOrCreateField(fieldId, true)
+                    if field then
+                        -- Try again after creation
+                        fieldInfo = self.soilSystem:getFieldInfo(fieldId)
+                    end
                 end
             end
         end
 
         if self.settings.debugMode then
-            if fieldInfo then
+            if pfData then
+                SoilLogger.info("[HUD DEBUG] Field %d PF data: N=%d, P=%d, K=%d",
+                    fieldId or -1,
+                    pfData.nitrogen or -1,
+                    pfData.phosphorus or -1,
+                    pfData.potassium or -1)
+            elseif fieldInfo then
                 SoilLogger.info("[HUD DEBUG] Field %d data: N=%d, P=%d, K=%d",
                     fieldId or -1,
                     fieldInfo.nitrogen and fieldInfo.nitrogen.value or -1,
@@ -555,7 +578,7 @@ function SoilHUD:drawPanel(farmlandId)
         renderText(screenX, screenY, 0.012 * fontMult, string.format("Farmland %d", farmlandId))
         screenY = screenY - lineHeight
 
-        if not fieldInfo then
+        if not pfData and not fieldInfo then
             -- Show why data isn't available
             if not fieldId then
                 renderText(screenX, screenY, 0.012 * fontMult, "No field data")
@@ -567,41 +590,62 @@ function SoilHUD:drawPanel(farmlandId)
                 renderText(screenX, screenY, 0.011 * fontMult, "Initializing...")
             end
         else
-            -- Show field ID if available (for debugging/info)
+            -- Show field ID with PF indicator if using PF data
             if fieldId then
-                renderText(screenX, screenY, 0.011 * fontMult, string.format("(Field %d)", fieldId))
+                if usingPFData then
+                    renderText(screenX, screenY, 0.011 * fontMult, string.format("(Field %d - PF)", fieldId))
+                else
+                    renderText(screenX, screenY, 0.011 * fontMult, string.format("(Field %d)", fieldId))
+                end
                 screenY = screenY - lineHeight
             end
-            
-            -- Show soil data with safe value extraction
-            local nVal = (fieldInfo.nitrogen and fieldInfo.nitrogen.value) or 0
-            local pVal = (fieldInfo.phosphorus and fieldInfo.phosphorus.value) or 0
-            local kVal = (fieldInfo.potassium and fieldInfo.potassium.value) or 0
-            local phVal = fieldInfo.pH or 0
-            local omVal = fieldInfo.organicMatter or 0
-            
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("N: %d", nVal))
+
+            -- Extract values from appropriate data source
+            local nVal, pVal, kVal, phVal, omVal, lastCrop
+
+            if pfData then
+                -- PF data is raw numeric values
+                nVal = pfData.nitrogen or 0
+                pVal = pfData.phosphorus or 0
+                kVal = pfData.potassium or 0
+                phVal = pfData.pH or 0
+                omVal = pfData.organicMatter or 0
+                lastCrop = nil  -- PF doesn't track last crop
+            else
+                -- SoilFertilizer data has wrapped values
+                nVal = (fieldInfo.nitrogen and fieldInfo.nitrogen.value) or 0
+                pVal = (fieldInfo.phosphorus and fieldInfo.phosphorus.value) or 0
+                kVal = (fieldInfo.potassium and fieldInfo.potassium.value) or 0
+                phVal = fieldInfo.pH or 0
+                omVal = fieldInfo.organicMatter or 0
+                lastCrop = fieldInfo.lastCrop
+            end
+
+            -- Display nutrient values (add PF indicator if using PF data)
+            local pfIndicator = usingPFData and " (PF)" or ""
+
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("N: %d%s", nVal, pfIndicator))
             screenY = screenY - lineHeight
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("P: %d", pVal))
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("P: %d%s", pVal, pfIndicator))
             screenY = screenY - lineHeight
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("K: %d", kVal))
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("K: %d%s", kVal, pfIndicator))
             screenY = screenY - lineHeight
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("pH: %.1f", phVal))
+            renderText(screenX, screenY, 0.012 * fontMult, string.format("pH: %.1f%s", phVal, pfIndicator))
             screenY = screenY - lineHeight
 
             -- Organic matter line (compact mode: combine with last crop)
-            if compactMode and fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" and fieldInfo.lastCrop ~= "" then
-                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%% | %s", omVal, fieldInfo.lastCrop))
+            if compactMode and lastCrop and lastCrop ~= "None" and lastCrop ~= "" then
+                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%%s | %s", omVal, pfIndicator, lastCrop))
             else
-                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%", omVal))
+                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%%s", omVal, pfIndicator))
 
-                -- Show last crop on separate line (non-compact mode)
-                if fieldInfo.lastCrop and fieldInfo.lastCrop ~= "None" and fieldInfo.lastCrop ~= "" then
+                -- Show last crop on separate line (non-compact mode) - only if available
+                if lastCrop and lastCrop ~= "None" and lastCrop ~= "" then
                     screenY = screenY - lineHeight
-                    renderText(screenX, screenY, 0.011 * fontMult, string.format("%s", fieldInfo.lastCrop))
+                    renderText(screenX, screenY, 0.011 * fontMult, string.format("%s", lastCrop))
                 end
             end
         end
