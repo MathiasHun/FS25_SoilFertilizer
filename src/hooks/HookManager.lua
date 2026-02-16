@@ -119,6 +119,8 @@ function HookManager:installHarvestHook()
                 return
             end
 
+            SoilLogger.debug("Harvest hook triggered: Field %d, Crop %d, %.0fL", fieldId, fruitTypeIndex, liters)
+
             local success, errorMsg = pcall(function()
                 g_SoilFertilityManager.soilSystem:onHarvest(fieldId, fruitTypeIndex, liters)
             end)
@@ -156,6 +158,8 @@ function HookManager:installSprayerHook()
             local success, errorMsg = pcall(function()
                 local fillType = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
                 if not fillType then return end
+
+                SoilLogger.debug("Fertilizer hook triggered: Field %d, Fill type %s", fieldId, fillType.name or "unknown")
 
                 -- Check if this fill type is a recognized fertilizer
                 if SoilConstants.FERTILIZER_PROFILES[fillType.name] then
@@ -267,6 +271,11 @@ function HookManager:installPlowingHook()
             local workAreaSpec = cultivatorSelf.spec_workArea
             if not workAreaSpec then return end
 
+            -- Validate workArea parameter
+            if not workArea or type(workArea) ~= "table" or #workArea < 5 then
+                return
+            end
+
             local success, errorMsg = pcall(function()
                 -- Get field ID from work area
                 local x = (workArea[1] + workArea[4]) / 2
@@ -287,8 +296,8 @@ function HookManager:installPlowingHook()
                             -- Some cultivators work deep enough to act as plows
                             if not isPlowingTool and cultivatorSelf.spec_cultivator then
                                 local cultivatorSpec = cultivatorSelf.spec_cultivator
-                                -- Check if working depth is significant (>15cm = plowing depth)
-                                if cultivatorSpec.workingDepth and cultivatorSpec.workingDepth > 0.15 then
+                                -- Check if working depth is significant (deep plowing threshold)
+                                if cultivatorSpec.workingDepth and cultivatorSpec.workingDepth > SoilConstants.PLOWING.MIN_DEPTH_FOR_PLOWING then
                                     isPlowingTool = true
                                 end
                             end

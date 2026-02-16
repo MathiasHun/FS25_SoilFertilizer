@@ -43,6 +43,15 @@ SoilConstants.FIELD_DEFAULTS = {
 }
 
 -- ========================================
+-- PLOWING
+-- ========================================
+-- Thresholds for plowing operations
+SoilConstants.PLOWING = {
+    MIN_DEPTH_FOR_PLOWING = 0.15,  -- Minimum working depth (meters) to qualify as deep plowing
+                                     -- Values > 0.15m improve organic matter mixing
+}
+
+-- ========================================
 -- NUTRIENT LIMITS
 -- ========================================
 SoilConstants.NUTRIENT_LIMITS = {

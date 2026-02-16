@@ -27,6 +27,7 @@ function SoilSettingsGUI:registerConsoleCommands()
     addConsoleCommand("SoilSetPlowingBonus", "Enable/disable plowing bonus (true/false)", "consoleCommandSetPlowingBonus", self)
     addConsoleCommand("SoilShowSettings", "Show current settings", "consoleCommandShowSettings", self)
     addConsoleCommand("SoilFieldInfo", "Show field soil information (fieldId)", "consoleCommandFieldInfo", self)
+    addConsoleCommand("SoilListFields", "List all fields with soil data", "consoleCommandListFields", self)
     addConsoleCommand("SoilResetSettings", "Reset all settings to defaults", "consoleCommandResetSettings", self)
     addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveData", self)
     addConsoleCommand("SoilDebug", "Toggle debug mode", "consoleCommandDebug", self)
@@ -50,6 +51,7 @@ function SoilSettingsGUI:consoleCommandHelp()
     print("SoilSetPlowingBonus true|false - Toggle plowing bonus")
     print("SoilShowSettings - Show current settings")
     print("SoilFieldInfo <fieldId> - Show soil info for field")
+    print("SoilListFields - List all fields with soil data")
     print("SoilResetSettings - Reset to defaults")
     print("SoilSaveData - Force save soil data")
     print("SoilDebug - Toggle debug mode")
@@ -247,6 +249,14 @@ function SoilSettingsGUI:consoleCommandFieldInfo(fieldId)
         else
             return "Field not found or not initialized"
         end
+    end
+    return "Error: Soil Mod not initialized"
+end
+
+function SoilSettingsGUI:consoleCommandListFields()
+    if g_SoilFertilityManager and g_SoilFertilityManager.soilSystem then
+        g_SoilFertilityManager.soilSystem:listAllFields()
+        return "Field list displayed in console"
     end
     return "Error: Soil Mod not initialized"
 end
