@@ -378,6 +378,12 @@ function SoilHUD:drawPanel(farmlandId)
     local colorTheme = self.settings.hudColorTheme or 1
     local fontSize = self.settings.hudFontSize or 2
     local transparency = self.settings.hudTransparency or 3
+
+    -- Validate and clamp HUD settings to valid ranges
+    if colorTheme < 1 or colorTheme > 4 then
+        SoilLogger.warning("HUD color theme out of range (%d) - clamping to 1-4", colorTheme)
+        colorTheme = math.max(1, math.min(4, colorTheme))
+    end
     local compactMode = self.settings.hudCompactMode or false
 
     -- Apply transparency to background overlay
@@ -617,7 +623,7 @@ function SoilHUD:drawPanel(farmlandId)
                 phVal = pfData.pH or 0
                 omVal = pfData.organicMatter or 0
                 lastCrop = nil  -- PF doesn't track last crop
-            else
+            elseif fieldInfo then
                 -- SoilFertilizer data has wrapped values
                 nVal = (fieldInfo.nitrogen and fieldInfo.nitrogen.value) or 0
                 pVal = (fieldInfo.phosphorus and fieldInfo.phosphorus.value) or 0
@@ -625,6 +631,10 @@ function SoilHUD:drawPanel(farmlandId)
                 phVal = fieldInfo.pH or 0
                 omVal = fieldInfo.organicMatter or 0
                 lastCrop = fieldInfo.lastCrop
+            else
+                -- Fallback: no data available (shouldn't reach here due to outer check)
+                nVal, pVal, kVal, phVal, omVal = 0, 0, 0, 0, 0
+                lastCrop = nil
             end
 
             -- Display nutrient values (add PF indicator if using PF data)

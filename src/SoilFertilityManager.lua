@@ -25,12 +25,30 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     self.guiRetryHandler = nil
 
     -- Settings
-    assert(SettingsManager, "SettingsManager not loaded")
+    if not SettingsManager then
+        SoilLogger.error("CRITICAL: SettingsManager not loaded - mod cannot initialize")
+        if g_gui then
+            g_gui:showInfoDialog({
+                text = "Soil & Fertilizer Mod failed to load.\n\nCritical module 'SettingsManager' is missing.\n\nPlease reinstall the mod or check for conflicts with other mods.",
+                title = "Mod Load Error"
+            })
+        end
+        return nil
+    end
     self.settingsManager = SettingsManager.new()
     self.settings = Settings.new(self.settingsManager)
 
     -- Soil system
-    assert(SoilFertilitySystem, "SoilFertilitySystem not loaded")
+    if not SoilFertilitySystem then
+        SoilLogger.error("CRITICAL: SoilFertilitySystem not loaded - mod cannot initialize")
+        if g_gui then
+            g_gui:showInfoDialog({
+                text = "Soil & Fertilizer Mod failed to load.\n\nCritical module 'SoilFertilitySystem' is missing.\n\nPlease reinstall the mod or check for conflicts with other mods.",
+                title = "Mod Load Error"
+            })
+        end
+        return nil
+    end
     self.soilSystem = SoilFertilitySystem.new(self.settings)
 
     -- GUI initialization (client only)
@@ -131,9 +149,19 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
 
     -- HUD (client only)
     if shouldInitGUI then
-        assert(SoilHUD, "SoilHUD not loaded")
-        self.soilHUD = SoilHUD.new(self.soilSystem, self.settings)
-        SoilLogger.info("Soil HUD created")
+        if not SoilHUD then
+            SoilLogger.error("CRITICAL: SoilHUD not loaded - HUD will be disabled")
+            if g_gui then
+                g_gui:showInfoDialog({
+                    text = "Soil & Fertilizer Mod: HUD module failed to load.\n\nThe mod will run without the HUD display.\n\nCore features remain active.",
+                    title = "HUD Load Warning"
+                })
+            end
+            self.soilHUD = nil
+        else
+            self.soilHUD = SoilHUD.new(self.soilSystem, self.settings)
+            SoilLogger.info("Soil HUD created")
+        end
     else
         self.soilHUD = nil
     end

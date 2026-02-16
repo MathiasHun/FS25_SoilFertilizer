@@ -170,9 +170,14 @@ function SettingsSchema.getAllDefaults()
 end
 
 --- Validate a setting value against its schema
+--- Returns validated value, or nil if setting is unknown
 function SettingsSchema.validate(id, value)
     local def = SettingsSchema.byId[id]
-    if not def then return value end
+    if not def then
+        -- Reject unknown settings (fail-secure pattern)
+        SoilLogger.warning("Validation rejected unknown setting: %s", tostring(id))
+        return nil
+    end
 
     if def.type == "boolean" then
         return not not value

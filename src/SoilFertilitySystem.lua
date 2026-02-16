@@ -26,6 +26,11 @@ function SoilFertilitySystem.new(settings)
     self.fieldsScanNextRetry = 0
     self.fieldsScanRetryInterval = 2000  -- 2 seconds between attempts
 
+    -- Frame-based fallback (in case g_currentMission.time is frozen)
+    self.fieldsScanStage = 1  -- 1=time-based, 2=frame-based, 3=failed
+    self.fieldsScanFrameCounter = 0
+    self.fieldsScanMaxFrames = 600  -- 600 frames = ~10 seconds at 60fps
+
     return self
 end
 
@@ -251,23 +256,69 @@ end
 function SoilFertilitySystem:update(dt)
     if not self.settings.enabled then return end
 
-    -- Delayed field scanning retry (fields might not be ready at initialization)
-    if self.fieldsScanPending and self.fieldsScanAttempts < self.fieldsScanMaxAttempts then
-        local currentTime = g_currentMission and g_currentMission.time or 0
-        if currentTime >= self.fieldsScanNextRetry then
-            self.fieldsScanAttempts = self.fieldsScanAttempts + 1
-            self:log("Retrying field scan (attempt %d/%d)...", self.fieldsScanAttempts, self.fieldsScanMaxAttempts)
+    -- Delayed field scanning retry (3-tier approach: time-based → frame-based → fail gracefully)
+    if self.fieldsScanPending then
+        if self.fieldsScanStage == 1 then
+            -- Stage 1: Time-based retry (10 attempts, 2 sec intervals)
+            if self.fieldsScanAttempts < self.fieldsScanMaxAttempts then
+                local currentTime = g_currentMission and g_currentMission.time or 0
+                if currentTime >= self.fieldsScanNextRetry then
+                    self.fieldsScanAttempts = self.fieldsScanAttempts + 1
+                    self:log("Retrying field scan (attempt %d/%d)...", self.fieldsScanAttempts, self.fieldsScanMaxAttempts)
 
-            local success = self:scanFields()
-            if success then
-                self:info("Delayed field scan successful!")
-            else
-                -- Schedule next retry
-                self.fieldsScanNextRetry = currentTime + self.fieldsScanRetryInterval
-                if self.fieldsScanAttempts >= self.fieldsScanMaxAttempts then
-                    self:warning("Field scan failed after %d attempts - fields may not be available yet", self.fieldsScanMaxAttempts)
-                    self.fieldsScanPending = false  -- Stop retrying
+                    local success = self:scanFields()
+                    if success then
+                        self:info("Delayed field scan successful!")
+                        self.fieldsScanPending = false
+                    else
+                        -- Schedule next retry
+                        self.fieldsScanNextRetry = currentTime + self.fieldsScanRetryInterval
+                        if self.fieldsScanAttempts >= self.fieldsScanMaxAttempts then
+                            self:warning("Time-based retry failed after %d attempts - switching to frame-based fallback", self.fieldsScanMaxAttempts)
+                            self.fieldsScanStage = 2
+                            self.fieldsScanFrameCounter = 0
+                            if g_currentMission and g_currentMission.hud then
+                                g_currentMission.hud:showBlinkingWarning("Soil Mod: Field initialization delayed. Trying alternative method...", 5000)
+                            end
+                        end
+                    end
                 end
+            end
+        elseif self.fieldsScanStage == 2 then
+            -- Stage 2: Frame-based fallback (try every frame for 600 frames = ~10 sec)
+            self.fieldsScanFrameCounter = self.fieldsScanFrameCounter + 1
+
+            -- Try scan every 30 frames (twice per second at 60fps) to avoid spam
+            if self.fieldsScanFrameCounter % 30 == 0 then
+                local success = self:scanFields()
+                if success then
+                    self:info("Frame-based field scan successful after %d frames!", self.fieldsScanFrameCounter)
+                    self.fieldsScanPending = false
+                    -- Show success notification so player knows recovery worked
+                    if g_currentMission and g_currentMission.hud then
+                        g_currentMission.hud:showBlinkingWarning("Soil Mod: Field initialization successful!", 4000)
+                    end
+                end
+            end
+
+            -- Timeout after max frames
+            if self.fieldsScanFrameCounter >= self.fieldsScanMaxFrames then
+                self:error("Field initialization failed after all retry attempts (time + frame-based)")
+                self.fieldsScanStage = 3
+
+                -- Show error dialog and disable mod gracefully
+                if g_gui then
+                    g_gui:showInfoDialog({
+                        text = "Soil & Fertilizer Mod: Could not initialize fields.\n\nThe game's field system is not responding.\n\nThe mod has been disabled for this session only.\n\nPlease restart the game to try again.\n\nIf this issue persists, please report it.",
+                        title = "Field Initialization Failed"
+                    })
+                end
+
+                -- Disable mod to prevent half-broken state
+                if self.settings then
+                    self.settings.enabled = false
+                end
+                self.fieldsScanPending = false
             end
         end
     end

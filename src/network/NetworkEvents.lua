@@ -291,23 +291,69 @@ function SoilFullSyncEvent:readStream(streamId, connection)
     -- Read field data
     self.fieldData = {}
     local fieldCount = streamReadInt32(streamId)
+    local corruptionDetected = false
+
     for i = 1, fieldCount do
         local fieldId = streamReadInt32(streamId)
-        self.fieldData[fieldId] = {
-            nitrogen = streamReadFloat32(streamId),
-            phosphorus = streamReadFloat32(streamId),
-            potassium = streamReadFloat32(streamId),
-            organicMatter = streamReadFloat32(streamId),
-            pH = streamReadFloat32(streamId),
-            lastCrop = streamReadString(streamId),
-            lastHarvest = streamReadInt32(streamId),
-            fertilizerApplied = streamReadFloat32(streamId),
-            initialized = true
-        }
-        -- Clear empty strings
-        if self.fieldData[fieldId].lastCrop == "" then
-            self.fieldData[fieldId].lastCrop = nil
+        local nitrogen = streamReadFloat32(streamId)
+        local phosphorus = streamReadFloat32(streamId)
+        local potassium = streamReadFloat32(streamId)
+        local organicMatter = streamReadFloat32(streamId)
+        local pH = streamReadFloat32(streamId)
+        local lastCrop = streamReadString(streamId)
+        local lastHarvest = streamReadInt32(streamId)
+        local fertilizerApplied = streamReadFloat32(streamId)
+
+        -- Validate and sanitize field data
+        local function validateNumber(value, min, max, default, name)
+            if type(value) ~= "number" or value ~= value then  -- Check for NaN
+                SoilLogger.warning("Corrupt MP data: Field %d %s is invalid (NaN) - using default %s", fieldId, name, tostring(default))
+                corruptionDetected = true
+                return default
+            end
+            if value < min or value > max then
+                SoilLogger.warning("Corrupt MP data: Field %d %s out of range (%s) - clamping to %s-%s", fieldId, name, tostring(value), tostring(min), tostring(max))
+                corruptionDetected = true
+                return math.max(min, math.min(max, value))
+            end
+            return value
         end
+
+        -- Sanitize all numeric values
+        nitrogen = validateNumber(nitrogen, SoilConstants.NUTRIENT_LIMITS.MIN, SoilConstants.NUTRIENT_LIMITS.MAX, 50, "nitrogen")
+        phosphorus = validateNumber(phosphorus, SoilConstants.NUTRIENT_LIMITS.MIN, SoilConstants.NUTRIENT_LIMITS.MAX, 40, "phosphorus")
+        potassium = validateNumber(potassium, SoilConstants.NUTRIENT_LIMITS.MIN, SoilConstants.NUTRIENT_LIMITS.MAX, 45, "potassium")
+        organicMatter = validateNumber(organicMatter, SoilConstants.NUTRIENT_LIMITS.MIN, SoilConstants.NUTRIENT_LIMITS.ORGANIC_MATTER_MAX, 3.5, "organicMatter")
+        pH = validateNumber(pH, SoilConstants.NUTRIENT_LIMITS.PH_MIN, SoilConstants.NUTRIENT_LIMITS.PH_MAX, 6.5, "pH")
+        lastHarvest = validateNumber(lastHarvest, 0, 999999, 0, "lastHarvest")
+        fertilizerApplied = validateNumber(fertilizerApplied, 0, 10000, 0, "fertilizerApplied")
+
+        -- Validate fieldId
+        if type(fieldId) ~= "number" or fieldId < 0 then
+            SoilLogger.warning("Corrupt MP data: Invalid fieldId (%s) - skipping field", tostring(fieldId))
+            corruptionDetected = true
+        else
+            self.fieldData[fieldId] = {
+                nitrogen = nitrogen,
+                phosphorus = phosphorus,
+                potassium = potassium,
+                organicMatter = organicMatter,
+                pH = pH,
+                lastCrop = lastCrop,
+                lastHarvest = lastHarvest,
+                fertilizerApplied = fertilizerApplied,
+                initialized = true
+            }
+            -- Clear empty strings
+            if self.fieldData[fieldId].lastCrop == "" then
+                self.fieldData[fieldId].lastCrop = nil
+            end
+        end
+    end
+
+    -- Notify user if corruption was detected
+    if corruptionDetected and g_currentMission and g_currentMission.hud then
+        g_currentMission.hud:showBlinkingWarning("Soil Mod: Data sync issue detected. Please report if this persists.", 6000)
     end
 
     self:run(connection)
@@ -413,17 +459,35 @@ end
 
 function SoilFieldUpdateEvent:readStream(streamId, connection)
     self.fieldId = streamReadInt32(streamId)
+
+    -- Read values with clamping to valid ranges (NPCFavor pattern)
+    local nitrogen = streamReadFloat32(streamId)
+    local phosphorus = streamReadFloat32(streamId)
+    local potassium = streamReadFloat32(streamId)
+    local organicMatter = streamReadFloat32(streamId)
+    local pH = streamReadFloat32(streamId)
+    local lastCrop = streamReadString(streamId)
+    local lastHarvest = streamReadInt32(streamId)
+    local fertilizerApplied = streamReadFloat32(streamId)
+
+    -- Clamp all values to valid ranges
     self.field = {
-        nitrogen = streamReadFloat32(streamId),
-        phosphorus = streamReadFloat32(streamId),
-        potassium = streamReadFloat32(streamId),
-        organicMatter = streamReadFloat32(streamId),
-        pH = streamReadFloat32(streamId),
-        lastCrop = streamReadString(streamId),
-        lastHarvest = streamReadInt32(streamId),
-        fertilizerApplied = streamReadFloat32(streamId),
+        nitrogen = math.max(SoilConstants.NUTRIENT_LIMITS.MIN,
+                           math.min(SoilConstants.NUTRIENT_LIMITS.MAX, nitrogen)),
+        phosphorus = math.max(SoilConstants.NUTRIENT_LIMITS.MIN,
+                             math.min(SoilConstants.NUTRIENT_LIMITS.MAX, phosphorus)),
+        potassium = math.max(SoilConstants.NUTRIENT_LIMITS.MIN,
+                            math.min(SoilConstants.NUTRIENT_LIMITS.MAX, potassium)),
+        organicMatter = math.max(SoilConstants.NUTRIENT_LIMITS.MIN,
+                                math.min(SoilConstants.NUTRIENT_LIMITS.ORGANIC_MATTER_MAX, organicMatter)),
+        pH = math.max(SoilConstants.NUTRIENT_LIMITS.PH_MIN,
+                     math.min(SoilConstants.NUTRIENT_LIMITS.PH_MAX, pH)),
+        lastCrop = lastCrop,
+        lastHarvest = math.max(0, lastHarvest),
+        fertilizerApplied = math.max(0, fertilizerApplied),
         initialized = true
     }
+
     -- Clear empty strings
     if self.field.lastCrop == "" then
         self.field.lastCrop = nil
