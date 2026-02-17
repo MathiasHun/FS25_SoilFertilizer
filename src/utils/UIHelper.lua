@@ -13,6 +13,11 @@
 ---@class UIHelper
 UIHelper = {}
 
+-- Vanilla FS25 always appends its own settings rows before any mod's rows.
+-- Restricting template search to the first N elements guarantees we only clone
+-- vanilla elements, never touching rows that other mods injected later.
+local MAX_SEARCH_INDEX = 50
+
 -- Template cache to avoid repeated searches and ensure consistency
 UIHelper.templateCache = {
     sectionHeader = nil,
@@ -98,15 +103,16 @@ local function findSectionTemplate(layout)
         return nil
     end
 
-    for _, el in ipairs(layout.elements) do
+    for i, el in ipairs(layout.elements) do
+        if i > MAX_SEARCH_INDEX then break end
         if not el.__soilFertilizerElement and validateSectionTemplate(el) then
-            SoilLogger.info("Found and cached section header template")
+            SoilLogger.info("Found and cached section header template (index %d)", i)
             UIHelper.templateCache.sectionHeader = el
             return el
         end
     end
 
-    SoilLogger.warning("Section header template not found in layout")
+    SoilLogger.warning("Section header template not found in first %d elements", MAX_SEARCH_INDEX)
     return nil
 end
 
@@ -129,7 +135,8 @@ local function findBinaryTemplate(layout)
 
     local candidates = {}
 
-    for _, el in ipairs(layout.elements) do
+    for i, el in ipairs(layout.elements) do
+        if i > MAX_SEARCH_INDEX then break end
         -- Skip elements we created (prevents using our own clones as templates)
         if not el.__soilFertilizerElement and el and el.elements and #el.elements >= 2 then
             local firstChild = el.elements[1]
@@ -144,13 +151,13 @@ local function findBinaryTemplate(layout)
 
     for _, candidate in ipairs(candidates) do
         if validateBinaryTemplate(candidate) then
-            SoilLogger.info("Found and cached binary option template (checked %d candidates)", #candidates)
+            SoilLogger.info("Found and cached binary option template (checked %d candidates in first %d elements)", #candidates, MAX_SEARCH_INDEX)
             UIHelper.templateCache.binaryOption = candidate
             return candidate
         end
     end
 
-    SoilLogger.warning("Binary option template not found (checked %d candidates)", #candidates)
+    SoilLogger.warning("Binary option template not found (checked %d candidates in first %d elements)", #candidates, MAX_SEARCH_INDEX)
     return nil
 end
 
@@ -167,7 +174,8 @@ local function findMultiTemplate(layout)
 
     local candidates = {}
 
-    for _, el in ipairs(layout.elements) do
+    for i, el in ipairs(layout.elements) do
+        if i > MAX_SEARCH_INDEX then break end
         -- Skip elements we created (prevents using our own clones as templates)
         if not el.__soilFertilizerElement and el and el.elements and #el.elements >= 2 then
             local firstChild = el.elements[1]
@@ -182,13 +190,13 @@ local function findMultiTemplate(layout)
 
     for _, candidate in ipairs(candidates) do
         if validateMultiTemplate(candidate) then
-            SoilLogger.info("Found and cached multi option template (checked %d candidates)", #candidates)
+            SoilLogger.info("Found and cached multi option template (checked %d candidates in first %d elements)", #candidates, MAX_SEARCH_INDEX)
             UIHelper.templateCache.multiOption = candidate
             return candidate
         end
     end
 
-    SoilLogger.warning("Multi option template not found (checked %d candidates)", #candidates)
+    SoilLogger.warning("Multi option template not found (checked %d candidates in first %d elements)", #candidates, MAX_SEARCH_INDEX)
     return nil
 end
 

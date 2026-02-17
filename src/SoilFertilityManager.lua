@@ -162,6 +162,44 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
             self.soilHUD = SoilHUD.new(self.soilSystem, self.settings)
             SoilLogger.info("Soil HUD created")
         end
+
+        -- Hook PlayerInputComponent.registerActionEvents for reliable J-key binding.
+        -- This fires at exactly the right time (when the player's input subsystem is ready),
+        -- eliminating the race condition from calling g_inputBinding during onMissionLoaded.
+        -- Pattern proven in FS25_NPCFavor main.lua:430-523.
+        if self.soilHUD and PlayerInputComponent and PlayerInputComponent.registerActionEvents then
+            local originalRegisterActionEvents = PlayerInputComponent.registerActionEvents
+            self._inputHookOriginal = originalRegisterActionEvents  -- saved for cleanup in delete()
+            PlayerInputComponent.registerActionEvents = function(inputComponent, ...)
+                originalRegisterActionEvents(inputComponent, ...)
+
+                -- Only register for the local (owning) player, not for every networked player
+                if not (inputComponent.player and inputComponent.player.isOwner) then return end
+                -- Guard against double-registration across level reloads
+                if g_SoilFertilityManager and g_SoilFertilityManager.toggleHUDEventId then return end
+                if not g_SoilFertilityManager or not g_SoilFertilityManager.soilHUD then return end
+
+                g_inputBinding:beginActionEventsModification(PlayerInputComponent.INPUT_CONTEXT_NAME)
+                local success, eventId = g_inputBinding:registerActionEvent(
+                    InputAction.SF_TOGGLE_HUD,
+                    g_SoilFertilityManager,
+                    g_SoilFertilityManager.onToggleHUDInput,
+                    false,  -- triggerUp
+                    true,   -- triggerDown
+                    false,  -- triggerAlways
+                    true    -- startActive
+                )
+                g_inputBinding:endActionEventsModification()
+
+                if success and eventId then
+                    g_SoilFertilityManager.toggleHUDEventId = eventId
+                    SoilLogger.info("HUD toggle (J) registered via PlayerInputComponent hook")
+                else
+                    SoilLogger.warning("HUD toggle (J) registration failed in PlayerInputComponent hook")
+                end
+            end
+            SoilLogger.info("PlayerInputComponent hook installed for J key")
+        end
     else
         self.soilHUD = nil
     end
@@ -212,6 +250,23 @@ function SoilFertilityManager:checkAndApplyCompatibility()
             end
         end
     end
+
+    -- Informational detection for known mod categories
+    -- (No behavioral changes — position-limited templates and appended hooks handle coexistence)
+    if g_modIsLoaded then
+        for modName, _ in pairs(g_modIsLoaded) do
+            local lowerName = string.lower(tostring(modName))
+            if lowerName:find("realisticharvesting") or lowerName:find("realistic_harvesting") then
+                SoilLogger.info("RealisticHarvesting detected — harvest hooks appended safely; soil updates fire if FruitUtil still present")
+            elseif lowerName:find("croprotation") or lowerName:find("crop_rotation") then
+                SoilLogger.info("CropRotation detected — no conflict; separate crop tracking data")
+            elseif lowerName:find("bettercontracts") then
+                SoilLogger.info("BetterContracts detected — UI template search limited to vanilla rows to protect BC settings page")
+            elseif lowerName:find("mudsystem") or lowerName:find("mud_system") or lowerName:find("mudphysic") then
+                SoilLogger.info("MudSystem/terrain mod detected — no conflict with soil nutrients")
+            end
+        end
+    end
 end
 
 --- Called after mission is loaded
@@ -221,9 +276,9 @@ function SoilFertilityManager:onMissionLoaded()
 
     local success, errorMsg = pcall(function()
         -- Initialize HUD immediately (client-side only)
+        -- Input binding (J key) is registered via PlayerInputComponent hook in new(), not here
         if self.soilHUD then
             self.soilHUD:initialize()
-            self:registerInputActions()
         end
 
         -- Defer soil system initialization (hook installation) until game is ready
@@ -249,7 +304,7 @@ function SoilFertilityManager:deferredSoilSystemInit()
         sfm = self,
         installed = false,
         attempts = 0,
-        maxAttempts = 30,  -- 30 attempts at 1 update/frame = ~1 second max wait
+        maxAttempts = 600,  -- ~10s at 60fps — covers 100+ mod servers where field population is slow
 
         update = function(self, dt)
             if self.installed then
@@ -267,10 +322,13 @@ function SoilFertilityManager:deferredSoilSystemInit()
                 return false  -- Keep waiting
             end
 
-            -- Guard 2: Field manager must be ready
-            if not g_fieldManager or not g_fieldManager.fields then
+            -- Guard 2: Field manager must be ready AND populated with at least one field.
+            -- On 100+ mod servers, g_fieldManager.fields exists as an empty table for several
+            -- seconds before the game finishes populating it — we must wait for next() to return
+            -- a valid entry, not just check for non-nil.
+            if not g_fieldManager or not g_fieldManager.fields or next(g_fieldManager.fields) == nil then
                 if self.attempts >= self.maxAttempts then
-                    SoilLogger.warning("Deferred init timeout: FieldManager not ready after %d attempts", self.attempts)
+                    SoilLogger.warning("Deferred init timeout: FieldManager not populated after %d attempts", self.attempts)
                     return true  -- Give up and remove updater
                 end
                 return false  -- Keep waiting
@@ -314,37 +372,10 @@ function SoilFertilityManager:deferredSoilSystemInit()
     end
 end
 
--- Register input actions for HUD toggle
-function SoilFertilityManager:registerInputActions()
-    if not self.soilHUD then
-        SoilLogger.info("HUD not available - input actions skipped")
-        return
-    end
-
-    -- Use proper RVB pattern (Register-Validate-Bind) for FS25 input system
-    g_inputBinding:beginActionEventsModification("PLAYER")
-
-    local success, eventId = g_inputBinding:registerActionEvent(
-        InputAction.SF_TOGGLE_HUD,
-        self,
-        self.onToggleHUDInput,
-        false,  -- triggerUp
-        true,   -- triggerDown
-        false,  -- triggerAlways
-        true,   -- startActive
-        nil,    -- callbackState
-        true    -- textVisibility
-    )
-
-    g_inputBinding:endActionEventsModification()
-
-    if success and eventId then
-        self.toggleHUDEventId = eventId
-        SoilLogger.info("J HUD toggle registered")
-    else
-        SoilLogger.warning("Failed to register J HUD toggle")
-    end
-end
+-- NOTE: registerInputActions() removed.
+-- J key is now registered inside the PlayerInputComponent.registerActionEvents hook
+-- installed in SoilFertilityManager.new(). This fires at the exact moment the player's
+-- input subsystem is ready, eliminating the race condition on dedicated-server clients.
 
 -- Input callback for HUD toggle (J)
 function SoilFertilityManager:onToggleHUDInput()
@@ -451,6 +482,13 @@ function SoilFertilityManager:delete()
     if self.guiRetryHandler then
         self.guiRetryHandler:reset()
         self.guiRetryHandler = nil
+    end
+
+    -- Restore PlayerInputComponent hook if we installed one
+    if self._inputHookOriginal and PlayerInputComponent then
+        PlayerInputComponent.registerActionEvents = self._inputHookOriginal
+        self._inputHookOriginal = nil
+        SoilLogger.info("PlayerInputComponent hook restored")
     end
 
     -- Clean up HUD and input actions

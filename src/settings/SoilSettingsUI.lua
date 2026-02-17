@@ -117,20 +117,12 @@ function SoilSettingsUI:inject()
         return true
     end
 
-    -- Safety gate: with many mods installed, generalSettingsLayout can become very large.
-    -- Adding cloned elements to an already-overloaded layout can push all elements off-screen,
-    -- causing every mod's settings page to appear blank/white (including vanilla pages).
-    -- At 200+ elements we're clearly in a heavily-modded dedicated-server scenario.
-    -- Injection is skipped entirely to protect other mods; console commands remain available.
+    -- Observability: log large mod lists but proceed with injection.
+    -- Template searches are position-limited to the first 50 elements (UIHelper.MAX_SEARCH_INDEX),
+    -- so we only clone vanilla rows regardless of how many mods have appended their rows.
     local elementCount = layout.elements and #layout.elements or 0
     if elementCount > 200 then
-        self.injected = true
-        SoilLogger.warning(
-            "Settings layout has %d elements — skipping UI injection to protect other mods. " ..
-            "Use console commands: type 'soilfertility' in developer console (~).",
-            elementCount
-        )
-        return true
+        SoilLogger.info("Large mod list (%d elements) — injecting with position-limited templates", elementCount)
     end
 
     -- Clear any existing elements to prevent duplicates on retry
