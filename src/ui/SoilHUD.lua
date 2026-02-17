@@ -78,164 +78,6 @@ function SoilHUD:delete()
     SoilLogger.info("Soil HUD overlay deleted")
 end
 
--- Get current farmland ID based on player/vehicle position
--- NOTE: Changed from getCurrentFieldId to getCurrentFarmlandId to match base game behavior
--- Base game shows "Farmland 1", "Farmland 2" etc, not field IDs
-function SoilHUD:getCurrentFarmlandId()
-    if not g_currentMission then
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFarmlandId: g_currentMission is nil")
-        end
-        return nil
-    end
-    if not g_farmlandManager then
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFarmlandId: g_farmlandManager is nil")
-        end
-        return nil
-    end
-
-    local x, z
-    local source = "unknown"
-
-    -- Debug: Log what's available
-    if self.settings.debugMode then
-        local player = g_currentMission.player
-        local vehicle = g_currentMission.controlledVehicle
-        SoilLogger.debug("[HUD] Player object: %s, rootNode: %s",
-            tostring(player ~= nil),
-            player and tostring(player.rootNode ~= nil) or "N/A")
-        SoilLogger.debug("[HUD] Vehicle object: %s, rootNode: %s",
-            tostring(vehicle ~= nil),
-            vehicle and tostring(vehicle.rootNode ~= nil) or "N/A")
-    end
-
-    -- Tier 0: Try g_localPlayer first (most reliable - from FS25 API)
-    if g_localPlayer then
-        local success, px, py, pz = pcall(function()
-            -- Try getPosition() method first
-            if g_localPlayer.getPosition then
-                return g_localPlayer:getPosition()
-            -- Fallback to rootNode
-            elseif g_localPlayer.rootNode and g_localPlayer.rootNode ~= 0 then
-                return getWorldTranslation(g_localPlayer.rootNode)
-            end
-            return nil, nil, nil
-        end)
-
-        if success and px then
-            x, z = px, pz
-            source = "g_localPlayer"
-        -- Check if player is in vehicle
-        elseif g_localPlayer.getIsInVehicle and g_localPlayer:getIsInVehicle() then
-            local vehicle = g_localPlayer:getCurrentVehicle()
-            if vehicle and vehicle.rootNode and vehicle.rootNode ~= 0 then
-                success, px, py, pz = pcall(getWorldTranslation, vehicle.rootNode)
-                if success and px then
-                    x, z = px, pz
-                    source = "g_localPlayer.vehicle"
-                end
-            end
-        end
-
-        if self.settings.debugMode and x then
-            SoilLogger.debug("[HUD] Using g_localPlayer for position")
-        end
-    end
-
-    -- Tier 1: Try g_currentMission.player (standard method)
-    if not x then
-        local player = g_currentMission.player
-        if player and player.rootNode then
-            local success, px, _, pz = pcall(getWorldTranslation, player.rootNode)
-            if success and px then
-                x, z = px, pz
-                source = "player"
-            end
-        -- Fallback: Try player position from baseInformation (FS25 multiplayer)
-        elseif player and player.baseInformation and player.baseInformation.lastPositionX then
-            x = player.baseInformation.lastPositionX
-            z = player.baseInformation.lastPositionZ
-            source = "player.baseInformation"
-            if self.settings.debugMode then
-                SoilLogger.debug("[HUD] Using player.baseInformation for position")
-            end
-        end
-    end
-
-    -- Tier 2: Try controlled vehicle
-    if not x then
-        local vehicle = g_currentMission.controlledVehicle
-        if vehicle and vehicle.rootNode then
-            local success, vx, _, vz = pcall(getWorldTranslation, vehicle.rootNode)
-            if success and vx then
-                x, z = vx, vz
-                source = "vehicle"
-            end
-        end
-    end
-
-    -- Tier 3: Try camera position (last resort)
-    if not x and g_currentMission.camera then
-        local success, cx, cy, cz = pcall(function()
-            if g_currentMission.camera.cameraNode then
-                return getWorldTranslation(g_currentMission.camera.cameraNode)
-            end
-        end)
-        if success and cx and cz then
-            x, z = cx, cz
-            source = "camera"
-            if self.settings.debugMode then
-                SoilLogger.debug("[HUD] Using camera position as last resort")
-            end
-        end
-    end
-
-    -- No position available
-    if not x then
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFarmlandId: No position available from any source")
-        end
-        return nil
-    end
-
-    if self.settings.debugMode then
-        SoilLogger.debug("[HUD] getCurrentFarmlandId: Position from %s: x=%.1f, z=%.1f", source, x, z)
-    end
-
-    -- Use farmland API to get farmland ID at world position
-    -- This is the correct FS25 API - returns the farmland ID directly
-    local farmlandId = nil
-    
-    -- Safely call the API (it might not be available in all game states)
-    if g_farmlandManager.getFarmlandIdAtWorldPosition then
-        farmlandId = g_farmlandManager:getFarmlandIdAtWorldPosition(x, z)
-    elseif g_farmlandManager.getFarmlandAtWorldPosition then
-        -- Fallback for older API naming (if it exists)
-        local farmland = g_farmlandManager:getFarmlandAtWorldPosition(x, z)
-        if farmland and farmland.id then
-            farmlandId = farmland.id
-        end
-    end
-    
-    if self.settings.debugMode then
-        SoilLogger.debug("[HUD] getFarmlandIdAtWorldPosition returned: %s", tostring(farmlandId))
-    end
-
-    -- Validate farmland ID (must be > 0, as 0 or nil means no farmland)
-    if farmlandId and farmlandId > 0 then
-        if self.settings.debugMode then
-            SoilLogger.debug("[HUD] getCurrentFarmlandId: Found farmland %d at position", farmlandId)
-        end
-        return farmlandId
-    end
-
-    if self.settings.debugMode then
-        SoilLogger.debug("[HUD] getCurrentFarmlandId: No farmland detected at position")
-    end
-    return nil
-end
-
 -- Update HUD (called every frame)
 function SoilHUD:update(dt)
     -- Check if position setting changed and update if needed
@@ -360,20 +202,21 @@ function SoilHUD:draw()
         end
     end
 
-    -- Get current farmland - this will also try to get position
-    local farmlandId = self:getCurrentFarmlandId()
+    -- Detect position ONCE per frame — reused for farmland lookup and field detection
+    local worldX, worldZ = self:getCurrentPosition()
+    local farmlandId = self:getFarmlandIdAtPosition(worldX, worldZ)
 
     -- Draw panel (always draw, even if no farmland)
     -- This ensures the HUD is visible
-    self:drawPanel(farmlandId)
+    self:drawPanel(farmlandId, worldX, worldZ)
 end
 
--- Draw the HUD panel
--- NOTE: Updated to use farmlandId instead of fieldId
--- Draw the HUD panel
--- FIXED: Now properly finds field based on position, not just farmland
--- Draw the HUD panel
-function SoilHUD:drawPanel(farmlandId)
+--- Draw the HUD panel
+--- worldX/worldZ are pre-computed by draw() to avoid redundant position detection
+---@param farmlandId number|nil Current farmland ID (nil if not on farmland)
+---@param worldX number|nil World X coordinate (cached from draw())
+---@param worldZ number|nil World Z coordinate (cached from draw())
+function SoilHUD:drawPanel(farmlandId, worldX, worldZ)
     -- Get customization settings
     local colorTheme = self.settings.hudColorTheme or 1
     local fontSize = self.settings.hudFontSize or 2
@@ -464,12 +307,10 @@ function SoilHUD:drawPanel(farmlandId)
             return
         end
         
-        -- Get current position and find which field contains it
-        local worldX, worldZ = self:getCurrentPosition()
+        -- Find which field contains the pre-cached position
         local fieldId = nil
 
         if worldX and worldZ then
-            -- Use reliable field detection (NPCFavor pattern)
             fieldId = self:findFieldAtPosition(worldX, worldZ)
         else
             -- Fallback: Can't get position, find first field in this farmland
@@ -568,57 +409,125 @@ function SoilHUD:drawPanel(farmlandId)
                 screenY = screenY - lineHeight
             end
 
-            -- Extract values from appropriate data source
+            -- Status color palette (Good=green, Fair=yellow, Poor=red)
+            local STATUS_COLORS = {
+                Good = {0.3, 0.9, 0.3, 1.0},
+                Fair = {0.9, 0.9, 0.2, 1.0},
+                Poor = {0.9, 0.3, 0.3, 1.0},
+            }
+
+            -- Helper: infer status from raw value (used for PF data path)
+            local function inferStatus(val, nutrient)
+                local t = SoilConstants.STATUS_THRESHOLDS[nutrient]
+                if not t then return "?" end
+                if val < t.poor then return "Poor"
+                elseif val < t.fair then return "Fair"
+                else return "Good" end
+            end
+
+            -- Extract values and status strings from the appropriate data source
             local nVal, pVal, kVal, phVal, omVal, lastCrop
+            local nStatus, pStatus, kStatus
+            local needsFertilization, daysSinceHarvest
 
             if pfData then
-                -- PF data is raw numeric values
                 nVal = pfData.nitrogen or 0
                 pVal = pfData.phosphorus or 0
                 kVal = pfData.potassium or 0
                 phVal = pfData.pH or 0
                 omVal = pfData.organicMatter or 0
-                lastCrop = nil  -- PF doesn't track last crop
+                lastCrop = nil
+                -- Infer status from PF raw values so display stays consistent
+                nStatus = inferStatus(nVal, "nitrogen")
+                pStatus = inferStatus(pVal, "phosphorus")
+                kStatus = inferStatus(kVal, "potassium")
+                needsFertilization = false  -- PF handles its own warnings
+                daysSinceHarvest = 0
             elseif fieldInfo then
-                -- SoilFertilizer data has wrapped values
                 nVal = (fieldInfo.nitrogen and fieldInfo.nitrogen.value) or 0
                 pVal = (fieldInfo.phosphorus and fieldInfo.phosphorus.value) or 0
                 kVal = (fieldInfo.potassium and fieldInfo.potassium.value) or 0
                 phVal = fieldInfo.pH or 0
                 omVal = fieldInfo.organicMatter or 0
                 lastCrop = fieldInfo.lastCrop
+                nStatus = (fieldInfo.nitrogen and fieldInfo.nitrogen.status) or inferStatus(nVal, "nitrogen")
+                pStatus = (fieldInfo.phosphorus and fieldInfo.phosphorus.status) or inferStatus(pVal, "phosphorus")
+                kStatus = (fieldInfo.potassium and fieldInfo.potassium.status) or inferStatus(kVal, "potassium")
+                needsFertilization = fieldInfo.needsFertilization or false
+                daysSinceHarvest = fieldInfo.daysSinceHarvest or 0
             else
-                -- Fallback: no data available (shouldn't reach here due to outer check)
                 nVal, pVal, kVal, phVal, omVal = 0, 0, 0, 0, 0
                 lastCrop = nil
+                nStatus, pStatus, kStatus = "?", "?", "?"
+                needsFertilization = false
+                daysSinceHarvest = 0
             end
 
-            -- Display nutrient values (add PF indicator if using PF data)
             local pfIndicator = usingPFData and " (PF)" or ""
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("N: %d%s", nVal, pfIndicator))
+            -- Compact mode uses single-letter status: G/F/P
+            local function fmtStatus(s)
+                if compactMode then
+                    return s == "Good" and "G" or s == "Fair" and "F" or s == "Poor" and "P" or s
+                end
+                return s
+            end
+
+            -- N line — color-coded by status
+            local nColor = STATUS_COLORS[nStatus] or {themeR, themeG, themeB, 1.0}
+            setTextColor(table.unpack(nColor))
+            renderText(screenX, screenY, 0.012 * fontMult,
+                string.format("N: %d (%s)%s", nVal, fmtStatus(nStatus), pfIndicator))
             screenY = screenY - lineHeight
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("P: %d%s", pVal, pfIndicator))
+            -- P line
+            local pColor = STATUS_COLORS[pStatus] or {themeR, themeG, themeB, 1.0}
+            setTextColor(table.unpack(pColor))
+            renderText(screenX, screenY, 0.012 * fontMult,
+                string.format("P: %d (%s)%s", pVal, fmtStatus(pStatus), pfIndicator))
             screenY = screenY - lineHeight
 
-            renderText(screenX, screenY, 0.012 * fontMult, string.format("K: %d%s", kVal, pfIndicator))
+            -- K line
+            local kColor = STATUS_COLORS[kStatus] or {themeR, themeG, themeB, 1.0}
+            setTextColor(table.unpack(kColor))
+            renderText(screenX, screenY, 0.012 * fontMult,
+                string.format("K: %d (%s)%s", kVal, fmtStatus(kStatus), pfIndicator))
             screenY = screenY - lineHeight
 
+            -- pH line (theme color — no status thresholds defined for pH display)
+            setTextColor(themeR, themeG, themeB, 1.0)
             renderText(screenX, screenY, 0.012 * fontMult, string.format("pH: %.1f%s", phVal, pfIndicator))
             screenY = screenY - lineHeight
 
-            -- Organic matter line (compact mode: combine with last crop)
+            -- Organic matter (compact mode: combine with last crop)
+            setTextColor(themeR, themeG, themeB, 1.0)
             if compactMode and lastCrop and lastCrop ~= "None" and lastCrop ~= "" then
-                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%%s | %s", omVal, pfIndicator, lastCrop))
+                renderText(screenX, screenY, 0.012 * fontMult,
+                    string.format("OM: %.1f%%%s | %s", omVal, pfIndicator, lastCrop))
             else
-                renderText(screenX, screenY, 0.012 * fontMult, string.format("OM: %.1f%%%s", omVal, pfIndicator))
+                renderText(screenX, screenY, 0.012 * fontMult,
+                    string.format("OM: %.1f%%%s", omVal, pfIndicator))
 
-                -- Show last crop on separate line (non-compact mode) - only if available
                 if lastCrop and lastCrop ~= "None" and lastCrop ~= "" then
                     screenY = screenY - lineHeight
-                    renderText(screenX, screenY, 0.011 * fontMult, string.format("%s", lastCrop))
+                    setTextColor(themeR, themeG, themeB, 0.85)
+                    renderText(screenX, screenY, 0.011 * fontMult, lastCrop)
                 end
+            end
+
+            -- Fertilization warning (actionable, orange)
+            if needsFertilization then
+                screenY = screenY - lineHeight
+                setTextColor(0.95, 0.5, 0.1, 1.0)
+                renderText(screenX, screenY, 0.011 * fontMult, "! Needs fertilizer")
+            end
+
+            -- Days since harvest (only shown when a harvest has occurred)
+            if daysSinceHarvest and daysSinceHarvest > 0 then
+                screenY = screenY - lineHeight
+                setTextColor(themeR, themeG, themeB, 0.65)
+                renderText(screenX, screenY, 0.010 * fontMult,
+                    string.format("Last: %d days ago", daysSinceHarvest))
             end
         end
     end
@@ -695,16 +604,56 @@ function SoilHUD:getCurrentPosition()
     return nil, nil
 end
 
+--- Lightweight farmland lookup using pre-computed world position
+---@param x number|nil World X coordinate
+---@param z number|nil World Z coordinate
+---@return number|nil farmlandId
+function SoilHUD:getFarmlandIdAtPosition(x, z)
+    if not x or not z then return nil end
+    if not g_farmlandManager then return nil end
+
+    local farmlandId = nil
+
+    if g_farmlandManager.getFarmlandIdAtWorldPosition then
+        farmlandId = g_farmlandManager:getFarmlandIdAtWorldPosition(x, z)
+    elseif g_farmlandManager.getFarmlandAtWorldPosition then
+        local farmland = g_farmlandManager:getFarmlandAtWorldPosition(x, z)
+        if farmland and farmland.id then
+            farmlandId = farmland.id
+        end
+    end
+
+    if farmlandId and farmlandId > 0 then
+        return farmlandId
+    end
+    return nil
+end
+
 --- Find which field contains a world position
---- Uses NPCFavor's proven pattern: manual iteration through fields
+--- Tier 0: g_fieldManager:getFieldAtWorldPosition() — most accurate FS25 API
+--- Tier 1: manual iteration using field.getContainsPoint()
+--- Tier 2: nearest field distance fallback
 ---@param x number World X coordinate
 ---@param z number World Z coordinate
 ---@return number|nil fieldId The field ID, or nil if not in any field
 function SoilHUD:findFieldAtPosition(x, z)
     if not x or not z then return nil end
-    if not g_fieldManager or not g_fieldManager.fields then return nil end
+    if not g_fieldManager then return nil end
 
-    -- Method 1: Try to find field that contains the position
+    -- TIER 0: g_fieldManager:getFieldAtWorldPosition() — most accurate (FS25 API)
+    if g_fieldManager.getFieldAtWorldPosition then
+        local ok, field = pcall(g_fieldManager.getFieldAtWorldPosition, g_fieldManager, x, z)
+        if ok and field and field.fieldId and field.fieldId > 0 then
+            if self.settings.debugMode then
+                SoilLogger.debug("[HUD] Field %d found via getFieldAtWorldPosition (Tier 0)", field.fieldId)
+            end
+            return field.fieldId
+        end
+    end
+
+    if not g_fieldManager.fields then return nil end
+
+    -- TIER 1: Try to find field that contains the position
     -- Check if field has boundary data and test if point is inside
     for _, field in pairs(g_fieldManager.fields) do
         if field and field.fieldId and field.fieldId > 0 then
@@ -721,7 +670,7 @@ function SoilHUD:findFieldAtPosition(x, z)
         end
     end
 
-    -- Method 2: Find nearest field (fallback for edge cases)
+    -- TIER 2: Find nearest field (fallback for edge cases)
     -- This ensures we always return a field ID even if position detection is imperfect
     local nearestFieldId = nil
     local nearestDist = math.huge
