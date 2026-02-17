@@ -117,6 +117,22 @@ function SoilSettingsUI:inject()
         return true
     end
 
+    -- Safety gate: with many mods installed, generalSettingsLayout can become very large.
+    -- Adding cloned elements to an already-overloaded layout can push all elements off-screen,
+    -- causing every mod's settings page to appear blank/white (including vanilla pages).
+    -- At 200+ elements we're clearly in a heavily-modded dedicated-server scenario.
+    -- Injection is skipped entirely to protect other mods; console commands remain available.
+    local elementCount = layout.elements and #layout.elements or 0
+    if elementCount > 200 then
+        self.injected = true
+        SoilLogger.warning(
+            "Settings layout has %d elements — skipping UI injection to protect other mods. " ..
+            "Use console commands: type 'soilfertility' in developer console (~).",
+            elementCount
+        )
+        return true
+    end
+
     -- Clear any existing elements to prevent duplicates on retry
     if #self.uiElements > 0 then
         SoilLogger.info("Clearing %d existing UI elements before retry", #self.uiElements)
@@ -132,16 +148,20 @@ function SoilSettingsUI:inject()
     local isAdmin = self:isPlayerAdmin()
     local pfActive = g_SoilFertilityManager and g_SoilFertilityManager.soilSystem and g_SoilFertilityManager.soilSystem.PFActive
 
-    -- Add Viewer Mode banner if Precision Farming is active
+    -- PF viewer-mode notice: use a section header (safe top-level clone).
+    -- createDescription() was removed because it cloned a CHILD element from another
+    -- mod's row, which could reparent that child and blank out the other mod's setting.
     if pfActive then
-        local pfInfoText = UIHelper.createDescription(layout, "sf_pf_viewer_mode_info")
-        if pfInfoText and pfInfoText.setText then
-            pfInfoText:setText("VIEWER MODE: Precision Farming is managing soil data - settings locked")
-            if pfInfoText.textColor then
-                pfInfoText.textColor = {0.4, 0.8, 1.0, 1.0}  -- Blue color to match info theme
+        local pfHeader = UIHelper.createSection(layout, "sf_pf_viewer_mode_info")
+        if pfHeader then
+            if pfHeader.setText then
+                pfHeader:setText("[ VIEWER MODE: Precision Farming active — settings locked ]")
             end
+            if pfHeader.textColor then
+                pfHeader.textColor = {0.4, 0.8, 1.0, 1.0}
+            end
+            table.insert(self.uiElements, pfHeader)
         end
-        table.insert(self.uiElements, pfInfoText)
     end
 
     -- Auto-generate boolean toggle options from schema

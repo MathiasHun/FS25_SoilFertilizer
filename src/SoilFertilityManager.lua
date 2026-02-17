@@ -443,6 +443,10 @@ function SoilFertilityManager:delete()
     -- Save soil data before shutdown
     self:saveSoilData()
 
+    -- Reset UI template cache so stale element references from this mission
+    -- don't persist into the next mission load
+    UIHelper.resetTemplateCache()
+
     -- Clean up retry handler
     if self.guiRetryHandler then
         self.guiRetryHandler:reset()

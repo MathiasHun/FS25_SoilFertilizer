@@ -16,17 +16,15 @@ UIHelper = {}
 -- Template cache to avoid repeated searches and ensure consistency
 UIHelper.templateCache = {
     sectionHeader = nil,
-    description = nil,
     binaryOption = nil,
     multiOption = nil,
     initialized = false
 }
 
--- Reset template cache (called on mission load/unload)
+-- Reset template cache (called on mission unload via SoilFertilityManager:delete())
 function UIHelper.resetTemplateCache()
     UIHelper.templateCache = {
         sectionHeader = nil,
-        description = nil,
         binaryOption = nil,
         multiOption = nil,
         initialized = false
@@ -51,13 +49,6 @@ end
 local function validateSectionTemplate(element)
     return element and
            element.name == "sectionHeader" and
-           type(element.clone) == "function" and
-           type(element.setText) == "function"
-end
-
--- Validate that an element has the expected structure for descriptions
-local function validateDescriptionTemplate(element)
-    return element and
            type(element.clone) == "function" and
            type(element.setText) == "function"
 end
@@ -96,6 +87,8 @@ local function validateMultiTemplate(element)
 end
 
 -- Find and cache section header template
+-- NOTE: Skips elements we created ourselves (__soilFertilizerElement) to prevent
+-- feedback loops on retry and to avoid using our own clones as templates.
 local function findSectionTemplate(layout)
     if UIHelper.templateCache.sectionHeader then
         return UIHelper.templateCache.sectionHeader
@@ -106,7 +99,7 @@ local function findSectionTemplate(layout)
     end
 
     for _, el in ipairs(layout.elements) do
-        if validateSectionTemplate(el) then
+        if not el.__soilFertilizerElement and validateSectionTemplate(el) then
             SoilLogger.info("Found and cached section header template")
             UIHelper.templateCache.sectionHeader = el
             return el
@@ -117,32 +110,14 @@ local function findSectionTemplate(layout)
     return nil
 end
 
--- Find and cache description template
-local function findDescriptionTemplate(layout)
-    if UIHelper.templateCache.description then
-        return UIHelper.templateCache.description
-    end
+-- NOTE: findDescriptionTemplate() was removed.
+-- It cached el.elements[2] — a CHILD element from another mod's settings row.
+-- Calling child:clone(layout) can reparent the original child out of its owning
+-- row, leaving that row with a missing label → white/blank setting in other mods.
+-- The PF viewer-mode notice now uses a section header instead (safe, top-level).
 
-    if not layout or not layout.elements then
-        return nil
-    end
-
-    for _, el in ipairs(layout.elements) do
-        if el and el.elements and #el.elements >= 2 then
-            local secondChild = el.elements[2]
-            if validateDescriptionTemplate(secondChild) then
-                SoilLogger.info("Found and cached description template")
-                UIHelper.templateCache.description = secondChild
-                return secondChild
-            end
-        end
-    end
-
-    SoilLogger.warning("Description template not found in layout")
-    return nil
-end
-
--- Find and cache binary option template with improved matching
+-- Find and cache binary option template
+-- Skips our own elements and searches only top-level layout items.
 local function findBinaryTemplate(layout)
     if UIHelper.templateCache.binaryOption then
         return UIHelper.templateCache.binaryOption
@@ -152,15 +127,12 @@ local function findBinaryTemplate(layout)
         return nil
     end
 
-    -- Search for valid checkbox templates
-    -- Try multiple strategies to handle different mod configurations
     local candidates = {}
 
     for _, el in ipairs(layout.elements) do
-        if el and el.elements and #el.elements >= 2 then
+        -- Skip elements we created (prevents using our own clones as templates)
+        if not el.__soilFertilizerElement and el and el.elements and #el.elements >= 2 then
             local firstChild = el.elements[1]
-
-            -- Strategy 1: Look for elements with "check" in ID (original approach)
             if firstChild and firstChild.id then
                 local id = tostring(firstChild.id)
                 if string.find(id, "check") or string.find(id, "Check") then
@@ -170,7 +142,6 @@ local function findBinaryTemplate(layout)
         end
     end
 
-    -- Validate candidates in order and use the first valid one
     for _, candidate in ipairs(candidates) do
         if validateBinaryTemplate(candidate) then
             SoilLogger.info("Found and cached binary option template (checked %d candidates)", #candidates)
@@ -183,7 +154,8 @@ local function findBinaryTemplate(layout)
     return nil
 end
 
--- Find and cache multi option template with improved matching
+-- Find and cache multi option template
+-- Skips our own elements and searches only top-level layout items.
 local function findMultiTemplate(layout)
     if UIHelper.templateCache.multiOption then
         return UIHelper.templateCache.multiOption
@@ -193,14 +165,12 @@ local function findMultiTemplate(layout)
         return nil
     end
 
-    -- Search for valid multi-option templates
     local candidates = {}
 
     for _, el in ipairs(layout.elements) do
-        if el and el.elements and #el.elements >= 2 then
+        -- Skip elements we created (prevents using our own clones as templates)
+        if not el.__soilFertilizerElement and el and el.elements and #el.elements >= 2 then
             local firstChild = el.elements[1]
-
-            -- Look for elements with "multi" in ID
             if firstChild and firstChild.id then
                 local id = tostring(firstChild.id)
                 if string.find(id, "multi") then
@@ -210,7 +180,6 @@ local function findMultiTemplate(layout)
         end
     end
 
-    -- Validate candidates in order and use the first valid one
     for _, candidate in ipairs(candidates) do
         if validateMultiTemplate(candidate) then
             SoilLogger.info("Found and cached multi option template (checked %d candidates)", #candidates)
@@ -258,56 +227,18 @@ function UIHelper.createSection(layout, textId)
         section.textColor = {0.95, 0.95, 0.95, 1.0}
     end
 
+    -- Tag as ours so find functions never use this element as a future template
+    section.__soilFertilizerElement = true
+
     SoilLogger.info("Created section header: %s (visible=%s)", textId, tostring(section.visible))
     return section
 end
 
-function UIHelper.createDescription(layout, textId)
-    if not layout or not layout.elements then
-        SoilLogger.error("[SoilFertilizer] Invalid layout passed to createDescription")
-        return nil
-    end
-
-    local template = findDescriptionTemplate(layout)
-    if not template then
-        SoilLogger.error("[SoilFertilizer] No valid description template found")
-        return nil
-    end
-
-    local success, desc = pcall(function() return template:clone(layout) end)
-    if not success or not desc then
-        SoilLogger.error("[SoilFertilizer] Failed to clone description template: %s", tostring(success))
-        return nil
-    end
-
-    desc.id = nil
-
-    if desc.setText then
-        desc:setText(getTextSafe(textId))
-    end
-
-    if desc.textSize then
-        desc.textSize = desc.textSize * 0.85
-    end
-
-    -- Defensive styling: explicit colors and visibility
-    if desc.textColor then
-        desc.textColor = {0.7, 0.7, 0.7, 1.0}
-    end
-
-    if desc.setVisible then
-        desc:setVisible(true)
-    end
-    desc.visible = true
-
-    -- Ensure alpha is not 0
-    if desc.alpha ~= nil then
-        desc.alpha = 1.0
-    end
-
-    SoilLogger.info("Created description: %s (visible=%s)", textId, tostring(desc.visible))
-    return desc
-end
+-- createDescription() was removed.
+-- It used findDescriptionTemplate() which cached a CHILD element (el.elements[2])
+-- from another mod's row. Cloning that child into the layout could reparent it,
+-- tearing it from its owner row and causing that mod's setting to appear blank.
+-- The single caller (PF viewer-mode notice) now uses createSection() instead.
 
 function UIHelper.createBinaryOption(layout, id, textId, state, callback)
     if not layout or not layout.elements then
@@ -417,6 +348,10 @@ function UIHelper.createBinaryOption(layout, id, textId, state, callback)
     if opt and opt.elements and opt.elements[1] and opt.elements[1].setText then
         opt.elements[1]:setText(tooltipText)
     end
+
+    -- Tag row and option as ours so find functions skip them on retry
+    row.__soilFertilizerElement = true
+    opt.__soilFertilizerElement = true
 
     SoilLogger.info("Created binary option: %s (state=%s, visible=%s, lblColor=%s)",
         textId, tostring(state), tostring(row.visible),
@@ -528,6 +463,10 @@ function UIHelper.createMultiOption(layout, id, textId, options, state, callback
     if opt and opt.elements and opt.elements[1] and opt.elements[1].setText then
         opt.elements[1]:setText(tooltipText)
     end
+
+    -- Tag row and option as ours so find functions skip them on retry
+    row.__soilFertilizerElement = true
+    opt.__soilFertilizerElement = true
 
     SoilLogger.info("Created multi option: %s (state=%s, visible=%s, lblColor=%s)",
         textId, tostring(state), tostring(row.visible),
