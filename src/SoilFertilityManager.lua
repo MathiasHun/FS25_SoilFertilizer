@@ -22,7 +22,6 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     self.modDirectory = modDirectory
     self.modName = modName
     self.disableGUI = disableGUI or false
-    self.guiRetryHandler = nil
 
     -- Settings
     if not SettingsManager then
@@ -52,92 +51,12 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     self.soilSystem = SoilFertilitySystem.new(self.settings)
 
     -- GUI initialization (client only)
+    -- Hooks are installed at file-load time in SoilSettingsUI.lua (runs once).
+    -- We just create the instance here; the hooks reference g_SoilFertilityManager.settingsUI.
     local shouldInitGUI = not self.disableGUI and mission:getIsClient() and g_gui and not g_safeMode
     if shouldInitGUI then
         SoilLogger.info("Initializing GUI elements...")
         self.settingsUI = SoilSettingsUI.new(self.settings)
-
-        -- Create retry handler for GUI injection
-        self.guiRetryHandler = AsyncRetryHandler.new({
-            name = "GUI_Injection",
-            maxAttempts = 3,
-            delays = {2000, 4000, 8000},  -- 2s, 4s, 8s - exponential backoff
-
-            -- Attempt injection
-            onAttempt = function()
-                if not self.settingsUI or self.settingsUI.injected then return end
-
-                local success, result = pcall(function()
-                    return self.settingsUI:inject()
-                end)
-
-                if success and result then
-                    -- Injection succeeded and validated
-                    self.guiRetryHandler:markSuccess()
-                end
-            end,
-
-            -- Check if already injected (manual success marker)
-            condition = function()
-                return self.settingsUI and self.settingsUI.injected
-            end,
-
-            -- Success callback
-            onSuccess = function()
-                SoilLogger.info("GUI injection completed successfully")
-            end,
-
-            -- Failure callback - show user dialog
-            onFailure = function()
-                SoilLogger.warning("GUI injection failed after all retry attempts")
-                self:showGUIFailureDialog()
-            end
-        })
-
-        -- Hook: Lazy injection when settings frame opens (primary path)
-        InGameMenuSettingsFrame.onFrameOpen = Utils.appendedFunction(
-            InGameMenuSettingsFrame.onFrameOpen,
-            function(frame)
-                if self.settingsUI and not self.settingsUI.injected then
-                    -- Try immediate injection
-                    local success, result = pcall(function()
-                        return self.settingsUI:inject()
-                    end)
-
-                    if success and result then
-                        -- Success! Cancel any pending retries
-                        if self.guiRetryHandler then
-                            self.guiRetryHandler:markSuccess()
-                        end
-                    elseif not self.guiRetryHandler or not self.guiRetryHandler:isPending() then
-                        -- Failed and no retry in progress - start retry sequence
-                        SoilLogger.info("Initial GUI injection failed, starting retry sequence")
-                        if self.guiRetryHandler then
-                            self.guiRetryHandler:start()
-                        end
-                    end
-                end
-
-                -- Ensure reset button exists
-                if self.settingsUI and self.settingsUI.injected then
-                    self.settingsUI:ensureResetButton(frame)
-                end
-            end
-        )
-
-        -- Hook: Update buttons
-        InGameMenuSettingsFrame.updateButtons = Utils.appendedFunction(
-            InGameMenuSettingsFrame.updateButtons,
-            function(frame)
-                if self.settingsUI and self.settingsUI.injected then
-                    self.settingsUI:ensureResetButton(frame)
-                end
-            end
-        )
-
-        -- Start background retry sequence (backup path)
-        SoilLogger.info("Starting GUI injection retry handler")
-        self.guiRetryHandler:start()
     else
         SoilLogger.info("GUI initialization skipped (Server/Console mode)")
         self.settingsUI = nil
@@ -163,6 +82,12 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
             SoilLogger.info("Soil HUD created")
         end
 
+        -- Soil Report dialog (K key)
+        if SoilReportDialog and g_gui then
+            self.soilReportDialog = SoilReportDialog.getInstance(modDirectory)
+            SoilLogger.info("Soil Report dialog created")
+        end
+
         -- Hook PlayerInputComponent.registerActionEvents for reliable J-key binding.
         -- This fires at exactly the right time (when the player's input subsystem is ready),
         -- eliminating the race condition from calling g_inputBinding during onMissionLoaded.
@@ -180,6 +105,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
                 if not g_SoilFertilityManager or not g_SoilFertilityManager.soilHUD then return end
 
                 g_inputBinding:beginActionEventsModification(PlayerInputComponent.INPUT_CONTEXT_NAME)
+
                 local success, eventId = g_inputBinding:registerActionEvent(
                     InputAction.SF_TOGGLE_HUD,
                     g_SoilFertilityManager,
@@ -189,16 +115,30 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
                     false,  -- triggerAlways
                     true    -- startActive
                 )
-                g_inputBinding:endActionEventsModification()
-
                 if success and eventId then
                     g_SoilFertilityManager.toggleHUDEventId = eventId
                     SoilLogger.info("HUD toggle (J) registered via PlayerInputComponent hook")
                 else
                     SoilLogger.warning("HUD toggle (J) registration failed in PlayerInputComponent hook")
                 end
+
+                -- Register K key for Soil Report dialog
+                if g_SoilFertilityManager.soilReportDialog and not g_SoilFertilityManager.soilReportEventId then
+                    local reportSuccess, reportEventId = g_inputBinding:registerActionEvent(
+                        InputAction.SF_SOIL_REPORT,
+                        g_SoilFertilityManager,
+                        g_SoilFertilityManager.onSoilReportInput,
+                        false, true, false, true
+                    )
+                    if reportSuccess and reportEventId then
+                        g_SoilFertilityManager.soilReportEventId = reportEventId
+                        SoilLogger.info("Soil Report (K) registered via PlayerInputComponent hook")
+                    end
+                end
+
+                g_inputBinding:endActionEventsModification()
             end
-            SoilLogger.info("PlayerInputComponent hook installed for J key")
+            SoilLogger.info("PlayerInputComponent hook installed for J/K keys")
         end
     else
         self.soilHUD = nil
@@ -237,22 +177,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
         self.soilSystem.PFActive = false
     end
 
-    -- Used Tyres mod
-    if g_modIsLoaded then
-        for modName, _ in pairs(g_modIsLoaded) do
-            local lowerName = string.lower(tostring(modName))
-            if lowerName:find("tyre") or lowerName:find("tire") or lowerName:find("used") then
-                if self.settingsUI then
-                    self.settingsUI.compatibilityMode = true
-                end
-                SoilLogger.info("Used Tyres mod detected - UI compatibility mode enabled")
-                break
-            end
-        end
-    end
-
     -- Informational detection for known mod categories
-    -- (No behavioral changes — position-limited templates and appended hooks handle coexistence)
     if g_modIsLoaded then
         for modName, _ in pairs(g_modIsLoaded) do
             local lowerName = string.lower(tostring(modName))
@@ -261,7 +186,7 @@ function SoilFertilityManager:checkAndApplyCompatibility()
             elseif lowerName:find("croprotation") or lowerName:find("crop_rotation") then
                 SoilLogger.info("CropRotation detected — no conflict; separate crop tracking data")
             elseif lowerName:find("bettercontracts") then
-                SoilLogger.info("BetterContracts detected — UI template search limited to vanilla rows to protect BC settings page")
+                SoilLogger.info("BetterContracts detected — profile-based UI creation ensures no settings page corruption")
             elseif lowerName:find("mudsystem") or lowerName:find("mud_system") or lowerName:find("mudphysic") then
                 SoilLogger.info("MudSystem/terrain mod detected — no conflict with soil nutrients")
             end
@@ -344,9 +269,9 @@ function SoilFertilityManager:deferredSoilSystemInit()
                 if self.sfm.settings.showNotifications and g_currentMission and g_currentMission.hud then
                     local message
                     if self.sfm.soilSystem.PFActive then
-                        message = "Soil Mod: Viewer Mode (Precision Farming active) | Press J to toggle HUD"
+                        message = "Soil Mod: Viewer Mode (Precision Farming active) | J = HUD | K = Soil Report"
                     else
-                        message = "Soil & Fertilizer Mod Active | Press J to toggle HUD | Type 'soilfertility' for commands"
+                        message = "Soil & Fertilizer Mod Active | J = HUD | K = Soil Report | Type 'soilfertility' for commands"
                     end
                     g_currentMission.hud:showBlinkingWarning(message, 8000)
                 end
@@ -381,6 +306,13 @@ end
 function SoilFertilityManager:onToggleHUDInput()
     if self.soilHUD then
         self.soilHUD:toggleVisibility()
+    end
+end
+
+-- Input callback for Soil Report dialog (K)
+function SoilFertilityManager:onSoilReportInput()
+    if self.soilReportDialog then
+        self.soilReportDialog:show()
     end
 end
 
@@ -438,11 +370,6 @@ function SoilFertilityManager:update(dt)
         self.soilSystem:update(dt)
     end
 
-    -- Update GUI retry handler if active
-    if self.guiRetryHandler then
-        self.guiRetryHandler:update(dt)
-    end
-
     -- FIX: Only update HUD if it exists (client side only)
     if self.soilHUD then
         -- Add pcall to prevent crashes if HUD has issues
@@ -474,16 +401,6 @@ function SoilFertilityManager:delete()
     -- Save soil data before shutdown
     self:saveSoilData()
 
-    -- Reset UI template cache so stale element references from this mission
-    -- don't persist into the next mission load
-    UIHelper.resetTemplateCache()
-
-    -- Clean up retry handler
-    if self.guiRetryHandler then
-        self.guiRetryHandler:reset()
-        self.guiRetryHandler = nil
-    end
-
     -- Restore PlayerInputComponent hook if we installed one
     if self._inputHookOriginal and PlayerInputComponent then
         PlayerInputComponent.registerActionEvents = self._inputHookOriginal
@@ -495,6 +412,17 @@ function SoilFertilityManager:delete()
     if self.toggleHUDEventId then
         g_inputBinding:removeActionEvent(self.toggleHUDEventId)
         self.toggleHUDEventId = nil
+    end
+
+    if self.soilReportEventId then
+        g_inputBinding:removeActionEvent(self.soilReportEventId)
+        self.soilReportEventId = nil
+    end
+
+    if self.soilReportDialog then
+        g_gui:closeDialogByName("SoilReportDialog")
+        self.soilReportDialog = nil
+        SoilReportDialog.instance = nil
     end
 
     if self.soilHUD then
@@ -511,76 +439,3 @@ function SoilFertilityManager:delete()
     SoilLogger.info("Shutting down")
 end
 
--- Show GUI failure dialog with retry option
-function SoilFertilityManager:showGUIFailureDialog()
-    if not g_gui then return end
-
-    -- Don't show dialog if we're already shutting down
-    if not g_currentMission or g_currentMission.cancelLoading then return end
-
-    local dialogText = "Soil & Fertilizer Mod: Settings UI unavailable.\n\n" ..
-                      "The mod is active and working, but the settings menu couldn't be loaded.\n" ..
-                      "This can happen when other mods interfere with menu initialization.\n\n" ..
-                      "The mod is still tracking soil nutrients and all features are active.\n\n" ..
-                      "Would you like to:\n" ..
-                      "• Try loading the UI again, or\n" ..
-                      "• Use console commands instead?\n\n" ..
-                      "(Console: Press ~ and type 'soilfertility' for commands)"
-
-    g_gui:showYesNoDialog({
-        text = dialogText,
-        title = "Settings UI Failed to Load",
-        yesText = "Try Again",
-        noText = "Use Console",
-        callback = function(retry)
-            if retry then
-                -- User wants to retry
-                SoilLogger.info("User requested manual GUI injection retry")
-
-                if self.settingsUI and not self.settingsUI.injected then
-                    -- Reset and try again
-                    local success, result = pcall(function()
-                        return self.settingsUI:inject()
-                    end)
-
-                    if success and result then
-                        g_gui:showInfoDialog({
-                            text = "Settings UI loaded successfully!\n\nYou can now access Soil & Fertilizer settings in the game menu.",
-                            title = "Success"
-                        })
-                        SoilLogger.info("Manual GUI injection succeeded")
-                    else
-                        g_gui:showInfoDialog({
-                            text = "Settings UI still unavailable.\n\nPlease use console commands instead:\n\n" ..
-                                  "Press ~ to open console\n" ..
-                                  "Type 'soilfertility' for command list\n" ..
-                                  "Type 'SoilShowSettings' to view current settings\n\n" ..
-                                  "The mod is working normally, only the UI menu is affected.",
-                            title = "Console Mode"
-                        })
-                        SoilLogger.warning("Manual GUI injection failed again")
-                    end
-                else
-                    g_gui:showInfoDialog({
-                        text = "Settings UI is now available!\n\nCheck your game menu.",
-                        title = "Already Loaded"
-                    })
-                end
-            else
-                -- User chose console mode
-                SoilLogger.info("User chose console-only mode")
-                g_gui:showInfoDialog({
-                    text = "Console Commands for Soil & Fertilizer Mod:\n\n" ..
-                          "Press ~ to open console, then type:\n\n" ..
-                          "• soilfertility - Show all commands\n" ..
-                          "• SoilShowSettings - View current settings\n" ..
-                          "• SoilEnable/SoilDisable - Toggle mod\n" ..
-                          "• SoilSetDifficulty 1|2|3 - Change difficulty\n" ..
-                          "• SoilFieldInfo <id> - Show field details\n\n" ..
-                          "The mod is working normally!",
-                    title = "Console Commands"
-                })
-            end
-        end
-    })
-end

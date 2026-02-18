@@ -37,7 +37,7 @@ function Settings:setDifficulty(difficulty)
             difficultyName = "Hardcore"
         end
 
-        SoilLogger.info("[SoilFertilizer]Difficulty changed to: %s", difficultyName)
+        SoilLogger.info("[SoilFertilizer] Difficulty changed to: %s", difficultyName)
     end
 end
 
