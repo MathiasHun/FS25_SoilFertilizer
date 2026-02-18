@@ -80,6 +80,15 @@ def build_mod():
                     zipf.write(lua_file, str(rel_path))
                     print(f"  + {rel_path}")
 
+        # Add all .xml files from gui/
+        gui_dir = script_dir / 'gui'
+        if gui_dir.exists():
+            for xml_file in gui_dir.rglob('*.xml'):
+                if should_include(xml_file):
+                    rel_path = xml_file.relative_to(script_dir)
+                    zipf.write(xml_file, str(rel_path))
+                    print(f"  + {rel_path}")
+
     # Get file size
     size_kb = output_file.stat().st_size / 1024
     print(f"\n✓ Build complete: {output_file.name} ({size_kb:.1f} KB)")
