@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7.1] - 2026-02-21
+
+### Fixed
+
+#### No field data on dedicated servers with Precision Farming (Issue #40)
+
+- **FIXED**: `checkPFCompatibility` no longer blindly enables read-only mode when Precision Farming is detected
+  - Now performs a second step probing the PF API (`g_precisionFarming.fieldData` / `soilMap:getFieldData`) before committing
+  - On dedicated servers the PF global exists but its field data API is unpopulated at mod-init time — the mod previously entered a silent broken read-only state as a result
+  - If the API is unreachable, logs a warning and falls back to independent mode so field data is written and synced normally
+  - Log message: `[SoilFertilizer WARNING] Precision Farming detected but API not accessible (dedicated server / load-order issue) - falling back to independent mode`
+
+- **FIXED**: Clients on dedicated servers never received initial field data
+  - Field data was previously only broadcast to clients on harvest or fertilizer events
+  - On a freshly loaded server with no activity, clients had empty field tables for the entire session
+  - `scanFields` now calls new `broadcastAllFieldData()` immediately after a successful scan
+  - `loadFromXMLFile` also calls `broadcastAllFieldData()` after load to re-sync clients following a save/load cycle
+
+- **ADDED**: `broadcastAllFieldData()` — iterates all tracked fields and broadcasts each to every connected client via `SoilFieldUpdateEvent`
+
+- **ADDED**: `onClientJoined(connection)` — sends full field state to a single newly-joined client; must be wired into the multiplayer connection-accepted handler (follow-up required)
+
+- **FIXED**: Field ID resolution priority in `scanFields` corrected
+  - Previous priority: `field.fieldId` → loop key → `field.id` → `field.index`
+  - Corrected priority: `field.fieldId` → `field.id` → `field.index` → loop key (last resort)
+  - The loop key is an internal table index that does not reliably match the in-game field ID on all maps, causing data to be stored and looked up under the wrong key
+
+- **FIXED**: `hasFarmland` check in `scanFields` no longer gates field initialization
+  - Unowned fields are valid and must be tracked so data is ready when ownership is later assigned via `onFieldOwnershipChanged`
+
+---
+
 ## [1.0.7.0] - 2026-02-18
 
 ### Changed
