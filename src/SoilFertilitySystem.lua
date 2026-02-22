@@ -2,6 +2,12 @@
 -- FS25 Realistic Soil & Fertilizer (FIXED VERSION)
 -- =========================================================
 -- Author: TisonK (bugfixes applied)
+-- Fix: Dedicated server / PF read-only mode causing no data on clients
+--   1. checkPFCompatibility now verifies PF API is actually accessible;
+--      falls back to independent mode if not (e.g. dedicated server).
+--   2. scanFields broadcasts all field data to clients after successful scan.
+--   3. New broadcastAllFieldData() sends every field to all connected clients.
+--   4. New onClientJoined(connection) sends all fields to late-joining clients.
 -- =========================================================
 
 ---@class SoilFertilitySystem
@@ -337,8 +343,10 @@ function SoilFertilitySystem:update(dt)
 end
 
 -- Check for Precision Farming compatibility
--- Note: This is typically set by SoilFertilityManager before initialize() is called
--- This function exists as a safety check in case it's called independently
+-- FIX: Verify PF API is actually accessible before committing to read-only mode.
+-- On dedicated servers, g_precisionFarming may be present but its field data API
+-- (fieldData table / soilMap:getFieldData) returns nothing. Falling back to
+-- independent mode ensures fields are written and synced normally.
 function SoilFertilitySystem:checkPFCompatibility()
     -- If PFActive is already set (by Manager), skip re-detection to avoid duplicate logging
     if self.PFActive ~= nil then
@@ -347,21 +355,47 @@ function SoilFertilitySystem:checkPFCompatibility()
 
     self.PFActive = false
 
-    if g_precisionFarming then
-        self.PFActive = true
-        self:info("Precision Farming detected - enabling read-only mode")
-        return
-    end
+    -- Step 1: Detect whether PF is loaded at all
+    local pfDetected = false
 
-    if g_modIsLoaded then
+    if g_precisionFarming then
+        pfDetected = true
+    elseif g_modIsLoaded then
         for modName, _ in pairs(g_modIsLoaded) do
             local lowerName = string.lower(tostring(modName))
             if lowerName:find("precisionfarming") or lowerName:find("precision_farming") then
-                self.PFActive = true
-                self:info("Precision Farming mod detected - enabling read-only mode")
-                return
+                pfDetected = true
+                break
             end
         end
+    end
+
+    if not pfDetected then
+        return  -- PF not present, nothing to do
+    end
+
+    -- Step 2: Verify the PF field data API is actually accessible.
+    -- On dedicated servers the g_precisionFarming global exists but neither
+    -- fieldData nor soilMap:getFieldData are populated at mod-init time,
+    -- which would leave us in a broken read-only state with no data ever
+    -- reaching connected clients.
+    local pfApiAvailable = false
+    if g_precisionFarming then
+        if g_precisionFarming.fieldData and next(g_precisionFarming.fieldData) ~= nil then
+            pfApiAvailable = true
+        elseif g_precisionFarming.soilMap and type(g_precisionFarming.soilMap.getFieldData) == "function" then
+            pfApiAvailable = true
+        end
+    end
+
+    if pfApiAvailable then
+        self.PFActive = true
+        self:info("Precision Farming detected - enabling read-only mode")
+    else
+        -- PF is loaded but its API is not reachable (dedicated server or early init order).
+        -- Run in independent mode so field data is written and synced normally.
+        self.PFActive = false
+        self:warning("Precision Farming detected but API not accessible (dedicated server / load-order issue) - falling back to independent mode")
     end
 end
 
@@ -390,42 +424,39 @@ function SoilFertilitySystem:scanFields()
         end
     end
 
-    -- TRUE FS25 SOURCE OF TRUTH - FIXED: Fields might be stored differently
-    -- Some maps store fields with numeric indices, others with string keys
+    -- TRUE FS25 SOURCE OF TRUTH
+    -- Field ID priority: field.fieldId → field.id → field.index → loop key (last resort)
+    -- The loop key is an internal table index that may not match the in-game field ID
+    -- on all maps, so it is only used as a fallback.
+    -- NOTE: hasFarmland is logged for debug but no longer gates initialization —
+    -- unowned fields are valid and must be tracked so data is ready when ownership changes.
     for fieldId, field in pairs(g_fieldManager.fields) do
-        -- Convert fieldId to number if it's a string
         local numericFieldId = tonumber(fieldId) or fieldId
-        
-        -- Check if this is a valid field object
+
         if field and type(field) == "table" then
-            -- Try to get field ID from various possible locations
             local actualFieldId = nil
-            
+
             if field.fieldId and field.fieldId > 0 then
                 actualFieldId = field.fieldId
-            elseif type(numericFieldId) == "number" and numericFieldId > 0 then
-                actualFieldId = numericFieldId
             elseif field.id and field.id > 0 then
                 actualFieldId = field.id
             elseif field.index and field.index > 0 then
                 actualFieldId = field.index
+            elseif type(numericFieldId) == "number" and numericFieldId > 0 then
+                actualFieldId = numericFieldId  -- last resort
             end
-            
-            -- Also check if this field has a valid farmland (some entries might be metadata)
-            local hasFarmland = false
-            if field.farmland and field.farmland.id and field.farmland.id > 0 then
-                hasFarmland = true
-            elseif field.farmlandId and field.farmlandId > 0 then
-                hasFarmland = true
-            end
-            
-            if actualFieldId and actualFieldId > 0 and hasFarmland then
+
+            if actualFieldId and actualFieldId > 0 then
+                -- Log farmland status for debug but don't gate on it
+                if self.settings.debugMode then
+                    local hasFarmland = (field.farmland and field.farmland.id and field.farmland.id > 0)
+                                     or (field.farmlandId and field.farmlandId > 0)
+                    print(string.format("[SoilFertilizer DEBUG] Found field %d (farmland: %s)",
+                        actualFieldId, tostring(hasFarmland)))
+                end
+
                 self:getOrCreateField(actualFieldId, true)
                 fieldCount = fieldCount + 1
-                
-                if self.settings.debugMode then
-                    print(string.format("[SoilFertilizer DEBUG] Found field %d with farmland", actualFieldId))
-                end
             end
         end
     end
@@ -434,10 +465,53 @@ function SoilFertilitySystem:scanFields()
 
     if fieldCount > 0 then
         self.fieldsScanPending = false
+
+        -- FIX: Broadcast all field data to connected clients immediately after scan.
+        -- Without this, clients on a dedicated server never receive the initial state
+        -- because per-field syncs only fire on harvest / fertilizer events.
+        self:broadcastAllFieldData()
+
         return true
     end
 
     return false
+end
+
+--- Broadcast every tracked field to all connected clients.
+--- Called once after a successful field scan and can be called again
+--- at any time to force a full re-sync (e.g. after a save/load cycle).
+function SoilFertilitySystem:broadcastAllFieldData()
+    if not g_server then return end
+    if not g_currentMission then return end
+    if not g_currentMission.missionDynamicInfo.isMultiplayer then return end
+    if not SoilFieldUpdateEvent then return end
+
+    local count = 0
+    for fieldId, field in pairs(self.fieldData) do
+        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        count = count + 1
+    end
+
+    if count > 0 then
+        self:info("Broadcast initial field data for %d fields to all clients", count)
+    end
+end
+
+--- Send all tracked field data to a single newly-joined client.
+--- Wire this up from your multiplayer join / connection-accepted handler.
+---@param connection table The network connection object for the joining client
+function SoilFertilitySystem:onClientJoined(connection)
+    if not g_server then return end
+    if not connection then return end
+    if not SoilFieldUpdateEvent then return end
+
+    local count = 0
+    for fieldId, field in pairs(self.fieldData) do
+        connection:sendEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        count = count + 1
+    end
+
+    self:info("Sent %d fields to newly joined client", count)
 end
 
 -- Get or create field data - FIXED: Better PF integration and validation
@@ -723,7 +797,7 @@ function SoilFertilitySystem:readPFFieldData(fieldId)
     -- No data found via either API
     if not rawData then
         if self.settings.debugMode then
-            self:debug("PF data not available for field %d (tried both API paths)", fieldId)
+            self:log("PF data not available for field %d (tried both API paths)", fieldId)
         end
         return nil
     end
@@ -776,7 +850,7 @@ function SoilFertilitySystem:readPFFieldData(fieldId)
 
     -- Debug log successful read
     if self.settings.debugMode then
-        self:debug("PF data read for field %d via API: %s (N=%.1f, P=%.1f, K=%.1f, pH=%.1f, OM=%.1f)",
+        self:log("PF data read for field %d via API: %s (N=%.1f, P=%.1f, K=%.1f, pH=%.1f, OM=%.1f)",
             fieldId, apiPath,
             pfData.nitrogen, pfData.phosphorus, pfData.potassium, pfData.pH, pfData.organicMatter)
     end
@@ -885,7 +959,6 @@ function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
     self:info("Saved data for %d fields", index)
 end
 
-
 -- Load from XML file
 function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
     if not xmlFile then return end
@@ -921,6 +994,10 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
     end
 
     self:info("Loaded data for %d fields", index)
+
+    -- FIX: Re-broadcast after load so clients that were connected during a
+    -- save/load cycle get up-to-date values immediately.
+    self:broadcastAllFieldData()
 end
 
 -- Debug: List all fields

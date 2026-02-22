@@ -1,5 +1,5 @@
 -- =========================================================
--- FS25 Realistic Soil & Fertilizer (version 1.0.7.0)
+-- FS25 Realistic Soil & Fertilizer (version 1.0.7.1)
 -- =========================================================
 -- Soil HUD Overlay - legend/reference display (toggle with J key)
 -- =========================================================

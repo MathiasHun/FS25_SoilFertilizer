@@ -1,7 +1,7 @@
 # FS25_SoilFertilizer - Developer Guide
 
-**Version**: 1.0.7.0
-**Last Updated**: 2026-02-18
+**Version**: 1.0.7.1
+**Last Updated**: 2026-02-21
 
 ---
 
@@ -293,6 +293,52 @@ end
 4. Client applies received data
 5. If sync fails, client retries (3 attempts, 5-second intervals)
 
+### Initial Field Data Broadcast (Dedicated Servers)
+
+On dedicated servers, clients may join before any harvest or fertilizer events have
+fired, meaning per-field `SoilFieldUpdateEvent` broadcasts never reach them. To handle
+this, `SoilFertilitySystem` performs a full broadcast immediately after the field scan
+completes and again after `loadFromXMLFile`:
+
+```lua
+-- Called automatically by scanFields() and loadFromXMLFile()
+function SoilFertilitySystem:broadcastAllFieldData()
+    if not g_server then return end
+    for fieldId, field in pairs(self.fieldData) do
+        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+    end
+end
+```
+
+For late-joining clients, call `SoilFertilitySystem:onClientJoined(connection)` from
+your multiplayer connection-accepted handler. This sends the full field state to the
+single new connection rather than broadcasting to everyone:
+
+```lua
+-- Wire this up wherever the server accepts a new player connection
+g_SoilFertilityManager.soilSystem:onClientJoined(connection)
+```
+
+> **Note**: `onClientJoined` is implemented but not yet wired to a connection event.
+> This is tracked as a follow-up task. The `broadcastAllFieldData` call after scan
+> covers the common case of all players being present at server load.
+
+### Precision Farming on Dedicated Servers
+
+`checkPFCompatibility` detects PF by presence of `g_precisionFarming` or a matching
+mod name, then **probes the API** before enabling read-only mode. If neither
+`g_precisionFarming.fieldData` nor `soilMap:getFieldData` are accessible — which is
+the case on dedicated servers where the PF global exists but is not yet populated —
+the mod falls back to independent mode automatically:
+
+```
+[SoilFertilizer WARNING] Precision Farming detected but API not accessible
+(dedicated server / load-order issue) - falling back to independent mode
+```
+
+This prevents the mod from entering a silent broken read-only state where no field
+data is ever written or synced to clients.
+
 ### Adding New Network-Synced Data
 
 If you need to sync new data types:
@@ -468,7 +514,25 @@ See `TESTING.md` for comprehensive manual testing procedures.
 - [ ] Toggle settings - changes take effect
 - [ ] Save/load - data persists
 - [ ] Multiplayer - server/client sync works
-- [ ] With Precision Farming - read-only mode activates
+- [ ] With Precision Farming - read-only mode activates (listen-server)
+- [ ] With Precision Farming on dedicated server - falls back to independent mode, clients receive data
+
+### Dedicated Server Testing
+
+When testing dedicated server scenarios with Precision Farming:
+
+1. Start a dedicated server with Precision Farming enabled
+2. Connect as a client
+3. Check `log.txt` — you should see:
+   ```
+   [SoilFertilizer WARNING] Precision Farming detected but API not accessible
+   (dedicated server / load-order issue) - falling back to independent mode
+   ```
+   followed by:
+   ```
+   [SoilFertilizer] Broadcast initial field data for N fields to all clients
+   ```
+4. Open the Soil Report (K key) — all fields should show soil data immediately without needing to harvest or fertilize first
 
 ### Debug Logging
 
@@ -554,7 +618,16 @@ if g_server then
 end
 ```
 
-### 5. Settings Schema Order Matters
+### 5. Dedicated Server + Precision Farming
+
+On dedicated servers, `g_precisionFarming` may exist in the global scope before its
+field data API is populated. Do **not** assume PF API availability from the presence
+of the global alone — always probe `g_precisionFarming.fieldData` or
+`soilMap:getFieldData` before treating it as accessible. The existing
+`checkPFCompatibility` handles this correctly; follow the same pattern in any new
+PF-aware code you add.
+
+### 6. Settings Schema Order Matters
 
 `SettingsSchema.definitions` order affects:
 - UI display order
@@ -563,7 +636,7 @@ end
 
 **Don't reorder** existing settings after release - it breaks saves!
 
-### 6. Translation Keys
+### 7. Translation Keys
 
 - UI IDs must have `_short` and `_long` variants:
   - `sf_your_setting_short` - Label in UI
@@ -572,12 +645,34 @@ end
 - Multi-option settings need option labels:
   - `sf_your_option_1`, `sf_your_option_2`, etc.
 
-### 7. Field ID vs Farmland ID
+### 8. Field ID vs Farmland ID
 
 - **Field ID**: Specific field polygon (unique)
 - **Farmland ID**: Purchasable land parcel (may contain multiple fields)
 
 Use `g_fieldManager:getFieldAtWorldPosition(x, z)` for precise field lookup.
+
+### 9. Field ID Resolution in scanFields
+
+When iterating `g_fieldManager.fields`, the loop key is an internal table index that
+does not reliably match the in-game field ID on all maps. Always resolve the actual
+field ID using this priority order:
+
+```lua
+local actualFieldId = nil
+if field.fieldId and field.fieldId > 0 then
+    actualFieldId = field.fieldId
+elseif field.id and field.id > 0 then
+    actualFieldId = field.id
+elseif field.index and field.index > 0 then
+    actualFieldId = field.index
+elseif type(numericFieldId) == "number" and numericFieldId > 0 then
+    actualFieldId = numericFieldId  -- last resort: loop key
+end
+```
+
+Using the loop key as anything other than a last resort causes data to be stored
+under the wrong ID, breaking all subsequent lookups.
 
 ---
 
@@ -587,17 +682,19 @@ Use `g_fieldManager:getFieldAtWorldPosition(x, z)` for precise field lookup.
 
 1. **Update version in modDesc.xml**:
    ```xml
-   <version>1.0.5.0</version>
+   <version>1.0.7.1</version>
    ```
 
 2. **Update version in source file headers**:
    - Update headers in `SoilHUD.lua`, `UIHelper.lua`, `Settings.lua`, etc.
    - Update `CLAUDE.md` Project Overview section
+   - Update `DEVELOPMENT.md` header (this file)
 
 3. **Test thoroughly**:
    - Run full regression test checklist (see `TESTING.md`)
-   - Test in multiplayer
-   - Test with Precision Farming
+   - Test in multiplayer (listen server)
+   - Test on dedicated server
+   - Test with Precision Farming on both listen server and dedicated server
 
 4. **Update CHANGELOG**:
    - Document all changes since last version
@@ -612,10 +709,10 @@ Use `g_fieldManager:getFieldAtWorldPosition(x, z)` for precise field lookup.
 6. **Commit & Tag**:
    ```bash
    git add .
-   git commit -m "Release v1.0.5.0"
-   git tag v1.0.5.0
+   git commit -m "Release v1.0.7.1"
+   git tag v1.0.7.1
    git push origin development
-   git push origin v1.0.5.0
+   git push origin v1.0.7.1
    ```
 
 7. **Create Pull Request** from `development` to `main`
