@@ -144,23 +144,58 @@ SoilConstants.CROP_EXTRACTION_DEFAULT = { N=0.21, P=0.09, K=0.17 }
 -- ========================================
 -- Calibrated for 0-100 nutrient scale
 -- Example: 2,000L liquid fertilizer restores ~13N, ~5.6P, ~10.7K
+--
+-- Base game fill types are recognized out of the box.
+-- Extended types (UAN32, ANHYDROUS, MAP, etc.) activate automatically
+-- when equipment mods register those fill type names via g_fillTypeManager.
 SoilConstants.FERTILIZER_PROFILES = {
-    LIQUIDFERTILIZER = { N=0.50, P=0.21, K=0.33 },  -- Balanced liquid NPK
-    FERTILIZER       = { N=0.67, P=0.33, K=0.25 },  -- Solid granular, high N/P
-    MANURE           = { N=0.25, P=0.17, K=0.29, OM=0.05 },  -- Organic, slow-release
-    SLURRY           = { N=0.33, P=0.17, K=0.42, OM=0.03 },  -- Liquid organic, high K
-    DIGESTATE        = { N=0.42, P=0.18, K=0.46, OM=0.04 },  -- Biogas byproduct
-    LIME             = { pH=0.4 },  -- pH adjustment (not on nutrient scale)
+    -- Base game
+    LIQUIDFERTILIZER  = { N=0.50, P=0.21, K=0.33 },           -- Balanced liquid NPK
+    FERTILIZER        = { N=0.67, P=0.33, K=0.25 },           -- Solid granular, high N/P
+    MANURE            = { N=0.25, P=0.17, K=0.29, OM=0.05 },  -- Organic, slow-release
+    SLURRY            = { N=0.33, P=0.17, K=0.42, OM=0.03 },  -- Liquid organic, high K
+    DIGESTATE         = { N=0.42, P=0.18, K=0.46, OM=0.04 },  -- Biogas byproduct
+    LIME              = { pH=0.4 },                             -- pH adjustment
+
+    -- Nitrogen sources (common in NA-style equipment mods)
+    UAN32             = { N=0.87, P=0.00, K=0.00 },  -- 32-0-0 liquid
+    UAN28             = { N=0.76, P=0.00, K=0.00 },  -- 28-0-0 liquid
+    ANHYDROUS         = { N=1.00, P=0.00, K=0.00 },  -- 82-0-0, highest N concentration
+    AMS               = { N=0.46, P=0.00, K=0.00 },  -- 21-0-0-24S ammonium sulfate
+    UREA              = { N=0.95, P=0.00, K=0.00 },  -- 46-0-0 dry granular
+
+    -- Starter fertilizer
+    STARTER           = { N=0.27, P=0.68, K=0.18 },  -- High-P starter (approx 10-34-0)
+
+    -- Phosphorus & potassium sources
+    MAP               = { N=0.30, P=1.41, K=0.00 },  -- 11-52-0 monoammonium phosphate
+    DAP               = { N=0.49, P=1.26, K=0.00 },  -- 18-46-0 diammonium phosphate
+    POTASH            = { N=0.00, P=0.00, K=1.63 },  -- 0-0-60 muriate of potash
+
+    -- Organic / slow-release
+    COMPOST           = { N=0.08, P=0.05, K=0.06, OM=0.12 },
+    BIOSOLIDS         = { N=0.28, P=0.22, K=0.08, OM=0.07 },
+    CHICKEN_MANURE    = { N=0.35, P=0.29, K=0.18, OM=0.08 },
+    PELLETIZED_MANURE = { N=0.65, P=0.45, K=0.55, OM=0.08 },
+
+    -- Lime variants
+    LIQUIDLIME        = { pH=0.3 },  -- Slightly weaker per volume than dry lime
 }
 
--- List of recognized fertilizer fill type names
+-- List of recognized fertilizer fill type names (for reference/iteration)
 SoilConstants.FERTILIZER_TYPES = {
-    "LIQUIDFERTILIZER",
-    "FERTILIZER",
-    "MANURE",
-    "SLURRY",
-    "DIGESTATE",
-    "LIME",
+    -- Base game
+    "LIQUIDFERTILIZER", "FERTILIZER", "MANURE", "SLURRY", "DIGESTATE", "LIME",
+    -- Nitrogen sources
+    "UAN32", "UAN28", "ANHYDROUS", "AMS", "UREA",
+    -- Starter
+    "STARTER",
+    -- P&K sources
+    "MAP", "DAP", "POTASH",
+    -- Organic
+    "COMPOST", "BIOSOLIDS", "CHICKEN_MANURE", "PELLETIZED_MANURE",
+    -- Lime variants
+    "LIQUIDLIME",
 }
 
 -- ========================================
