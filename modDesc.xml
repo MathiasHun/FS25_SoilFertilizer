@@ -40,6 +40,8 @@
     <actions>
         <action name="SF_TOGGLE_HUD" category="ONFOOT" />
         <action name="SF_SOIL_REPORT" category="ONFOOT" />
+        <action name="SF_RATE_UP"     category="VEHICLE" />
+        <action name="SF_RATE_DOWN"   category="VEHICLE" />
     </actions>
 
     <l10n>
@@ -826,6 +828,32 @@
             <ru>Отчёт о почве</ru>
             <hu>Talajjelentés</hu>
         </text>
+        <text name="input_SF_RATE_UP">
+            <en>Increase Fertilizer Rate</en>
+            <de>Düngerrate erhöhen</de>
+            <fr>Augmenter le taux d'engrais</fr>
+            <pl>Zwiększ dawkę nawozu</pl>
+            <es>Aumentar tasa fertilizante</es>
+            <it>Aumenta dose fertilizzante</it>
+            <cz>Zvýšit dávku hnojiva</cz>
+            <br>Aumentar taxa de fertilizante</br>
+            <uk>Збільшити норму добрива</uk>
+            <ru>Увеличить норму удобрения</ru>
+            <hu>Műtrágya arány növelése</hu>
+        </text>
+        <text name="input_SF_RATE_DOWN">
+            <en>Decrease Fertilizer Rate</en>
+            <de>Düngerrate verringern</de>
+            <fr>Réduire le taux d'engrais</fr>
+            <pl>Zmniejsz dawkę nawozu</pl>
+            <es>Reducir tasa fertilizante</es>
+            <it>Riduci dose fertilizzante</it>
+            <cz>Snížit dávku hnojiva</cz>
+            <br>Reduzir taxa de fertilizante</br>
+            <uk>Зменшити норму добрива</uk>
+            <ru>Уменьшить норму удобрения</ru>
+            <hu>Műtrágya arány csökkentése</hu>
+        </text>
 
         <!-- Soil Report Dialog (K key) -->
         <text name="sf_report_title">
@@ -1018,6 +1046,12 @@
         </actionBinding>
         <actionBinding action="SF_SOIL_REPORT">
             <binding device="KB_MOUSE_DEFAULT" input="KEY_K" />
+        </actionBinding>
+        <actionBinding action="SF_RATE_UP">
+            <binding device="KB_MOUSE_DEFAULT" input="KEY_RIGHTBRACKET" />
+        </actionBinding>
+        <actionBinding action="SF_RATE_DOWN">
+            <binding device="KB_MOUSE_DEFAULT" input="KEY_LEFTBRACKET" />
         </actionBinding>
     </inputBinding>
 </modDesc>

@@ -515,3 +515,22 @@ SoilConstants.RECOVERY_THRESHOLDS = {
     DEGRADATION_TRIGGER = 0.5,           -- 50% failure rate triggers degradation
     FULL_RECOVERY_THRESHOLD = 0.1,       -- 10% failure rate allows full recovery
 }
+
+-- ========================================
+-- SPRAYER APPLICATION RATE
+-- ========================================
+-- Six stepped rate multipliers shown in the HUD when the player is in a sprayer.
+-- DEFAULT_INDEX = 3 → 1.0x (100%, no change from base behaviour).
+-- Burn effects apply when nutrient-rich fertilizer is over-applied:
+--   > BURN_RISK_THRESHOLD      : probabilistic pH/N burn (prob scales with excess)
+--   >= BURN_GUARANTEED_THRESHOLD: guaranteed burn every application
+SoilConstants.SPRAYER_RATE = {
+    STEPS                    = { 0.50, 0.75, 1.00, 1.25, 1.50, 2.00 },
+    DEFAULT_INDEX            = 3,     -- 1.0x
+    BURN_RISK_THRESHOLD      = 1.25,  -- above this: chance of burn
+    BURN_GUARANTEED_THRESHOLD = 1.50, -- at or above this: burn every time
+    BURN_PH_DROP_RISK        = 0.15,  -- pH units lost on probabilistic burn
+    BURN_PH_DROP_CERTAIN     = 0.30,  -- pH units lost on guaranteed burn
+    BURN_N_DRAIN_RISK        = 5.0,   -- N points lost on probabilistic burn
+    BURN_N_DRAIN_CERTAIN     = 12.0,  -- N points lost on guaranteed burn
+}

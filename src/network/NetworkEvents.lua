@@ -649,4 +649,72 @@ function SoilNetworkEvents_OnFullSyncReceived()
     end
 end
 
+-- ========================================
+-- SPRAYER RATE EVENT (Client -> Server -> All clients)
+-- ========================================
+-- Sent when the local player changes the application rate on a sprayer.
+-- Server applies the change and rebroadcasts so all clients stay in sync.
+SoilSprayerRateEvent = {}
+SoilSprayerRateEvent_mt = Class(SoilSprayerRateEvent, Event)
+
+InitEventClass(SoilSprayerRateEvent, "SoilSprayerRateEvent")
+
+function SoilSprayerRateEvent.emptyNew()
+    return Event.new(SoilSprayerRateEvent_mt)
+end
+
+function SoilSprayerRateEvent.new(vehicleId, rateIndex)
+    local self = SoilSprayerRateEvent.emptyNew()
+    self.vehicleId = vehicleId
+    self.rateIndex = rateIndex
+    return self
+end
+
+function SoilSprayerRateEvent:readStream(streamId, connection)
+    self.vehicleId = streamReadInt32(streamId)
+    self.rateIndex = streamReadUInt8(streamId)
+    self:run(connection)
+end
+
+function SoilSprayerRateEvent:writeStream(streamId, connection)
+    streamWriteInt32(streamId, self.vehicleId)
+    streamWriteUInt8(streamId, self.rateIndex)
+end
+
+function SoilSprayerRateEvent:run(connection)
+    local rm = g_SoilFertilityManager and g_SoilFertilityManager.sprayerRateManager
+    if rm == nil then return end
+
+    local steps = SoilConstants.SPRAYER_RATE.STEPS
+    if self.rateIndex < 1 or self.rateIndex > #steps then return end
+
+    rm:setIndex(self.vehicleId, self.rateIndex)
+
+    -- Server rebroadcasts to all other clients
+    if g_server then
+        g_server:broadcastEvent(
+            SoilSprayerRateEvent.new(self.vehicleId, self.rateIndex),
+            nil,        -- send to all
+            connection  -- except original sender
+        )
+    end
+end
+
+--- Send a sprayer rate change. Works in SP, MP client, and MP server.
+---@param vehicleId number
+---@param rateIndex number 1-based index into SPRAYER_RATE.STEPS
+function SoilNetworkEvents_SendSprayerRate(vehicleId, rateIndex)
+    if g_client then
+        g_client:getServerConnection():sendEvent(
+            SoilSprayerRateEvent.new(vehicleId, rateIndex)
+        )
+    else
+        -- Singleplayer or dedicated server console: apply directly
+        local rm = g_SoilFertilityManager and g_SoilFertilityManager.sprayerRateManager
+        if rm then
+            rm:setIndex(vehicleId, rateIndex)
+        end
+    end
+end
+
 print("[SoilFertilizer] Network events system loaded")
