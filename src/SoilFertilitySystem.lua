@@ -463,7 +463,12 @@ function SoilFertilitySystem:scanFields()
     -- TRUE FS25 SOURCE OF TRUTH
     -- field.fieldId / field.id / field.index do NOT exist in FS25 — all return nil.
     -- The correct field identifier is field.farmland.id (confirmed in-game).
-    local fields = g_currentMission.fieldManager:getFields()
+    -- g_currentMission.fieldManager does not exist; use the global g_fieldManager.fields table directly.
+    if not g_fieldManager or not g_fieldManager.fields then
+        self:warn("g_fieldManager.fields not available — scan deferred")
+        return false
+    end
+    local fields = g_fieldManager.fields
     for _, field in ipairs(fields) do
         if field and type(field) == "table" then
             local actualFieldId = field.farmland and field.farmland.id
@@ -787,10 +792,61 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
 
     field.fertilizerApplied = (field.fertilizerApplied or 0) + liters
 
-    self:log(
-        "Fertilizer applied field %d (%s): %.0f L",
-        fieldId, fillType.name, liters
-    )
+    self:log("Fertilizer applied field %d (%s): %.0f L", fieldId, fillType.name, liters)
+end
+
+--- Apply over-application burn penalty to a field.
+--- Called by HookManager after fertilizer is applied at rate > BURN_RISK_THRESHOLD.
+--- At risk threshold: probabilistic burn (probability scales linearly with excess).
+--- At guaranteed threshold: burn every application.
+--- Burn reduces pH and nitrogen to simulate salt/chemical soil damage.
+---@param fieldId number
+---@param rateMultiplier number The actual rate multiplier used (e.g. 1.5)
+function SoilFertilitySystem:applyBurnEffect(fieldId, rateMultiplier)
+    local field = self.fieldData[fieldId]
+    if not field then return end
+
+    local burnCfg = SoilConstants.SPRAYER_RATE
+    local limits  = SoilConstants.NUTRIENT_LIMITS
+    local phDrop  = 0
+    local nDrain  = 0
+
+    if rateMultiplier >= burnCfg.BURN_GUARANTEED_THRESHOLD then
+        phDrop = burnCfg.BURN_PH_DROP_CERTAIN
+        nDrain = burnCfg.BURN_N_DRAIN_CERTAIN
+        field.burnActive = true
+    else
+        -- Probability scales linearly between risk threshold and guaranteed threshold
+        local excess = (rateMultiplier - burnCfg.BURN_RISK_THRESHOLD) /
+                       (burnCfg.BURN_GUARANTEED_THRESHOLD - burnCfg.BURN_RISK_THRESHOLD)
+        if math.random() < excess then
+            phDrop = burnCfg.BURN_PH_DROP_RISK
+            nDrain = burnCfg.BURN_N_DRAIN_RISK
+            field.burnActive = true
+        end
+    end
+
+    if phDrop > 0 then
+        field.pH       = math.max(limits.PH_MIN, field.pH - phDrop)
+        field.nitrogen = math.max(limits.MIN, field.nitrogen - nDrain)
+
+        self:log("Burn effect field %d: pH -%.2f, N -%.1f (rate=%.0f%%)",
+            fieldId, phDrop, nDrain, rateMultiplier * 100)
+
+        if self.settings.showNotifications then
+            self:showNotification(
+                "Fertilizer Burn",
+                string.format("Field %d: over-application damage (pH %.1f)", fieldId, field.pH)
+            )
+        end
+
+        -- Broadcast updated field data in multiplayer
+        if g_server and g_currentMission and g_currentMission.missionDynamicInfo.isMultiplayer then
+            if SoilFieldUpdateEvent then
+                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            end
+        end
+    end
 end
 
 -- Read PF data with validation and logging

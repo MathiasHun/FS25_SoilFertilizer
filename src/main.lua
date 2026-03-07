@@ -22,6 +22,7 @@ source(modDirectory .. "src/config/SettingsSchema.lua")
 
 -- 2. Core systems
 source(modDirectory .. "src/hooks/HookManager.lua")
+source(modDirectory .. "src/SprayerRateManager.lua")
 source(modDirectory .. "src/SoilFertilitySystem.lua")
 source(modDirectory .. "src/SoilFertilityManager.lua")
 
@@ -173,6 +174,16 @@ end)
 
 -- Install save/load hooks
 hookSaveLoadEvents()
+
+-- Route mouse events to SoilHUD (for drag/resize edit mode)
+-- RMB only enters edit mode when cursor is over the panel (no cross-contamination)
+local soilMouseHandler = {}
+function soilMouseHandler:mouseEvent(posX, posY, isDown, isUp, button, eventUsed)
+    if sfm and sfm.soilHUD then
+        sfm.soilHUD:onMouseEvent(posX, posY, isDown, isUp, button)
+    end
+end
+addModEventListener(soilMouseHandler)
 
 -- Console commands
 function soilfertility()

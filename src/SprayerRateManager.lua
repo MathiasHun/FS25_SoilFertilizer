@@ -1,0 +1,68 @@
+-- =========================================================
+-- FS25 Realistic Soil & Fertilizer - Sprayer Rate Manager
+-- =========================================================
+-- Tracks per-vehicle application rate multiplier.
+-- Rate persists for the lifetime of the vehicle object and is
+-- cleared only on mod unload. Players who hop out and back in
+-- keep their last-set rate (matching Precision Farming behaviour).
+-- =========================================================
+
+---@class SprayerRateManager
+SprayerRateManager = {}
+SprayerRateManager.__index = SprayerRateManager
+
+function SprayerRateManager.new()
+    local self = setmetatable({}, SprayerRateManager)
+    -- vehicleId (number) → rateIndex (1..#STEPS)
+    self.vehicleRates = {}
+    return self
+end
+
+--- Returns the current rate index for a vehicle (defaults to DEFAULT_INDEX).
+---@param vehicleId number
+---@return number index
+function SprayerRateManager:getIndex(vehicleId)
+    return self.vehicleRates[vehicleId] or SoilConstants.SPRAYER_RATE.DEFAULT_INDEX
+end
+
+--- Returns the rate multiplier (e.g. 1.0, 1.5) for a vehicle.
+---@param vehicleId number
+---@return number multiplier
+function SprayerRateManager:getMultiplier(vehicleId)
+    local idx = self:getIndex(vehicleId)
+    return SoilConstants.SPRAYER_RATE.STEPS[idx] or 1.0
+end
+
+--- Explicitly sets the rate index for a vehicle.
+---@param vehicleId number
+---@param index number 1-based index into SPRAYER_RATE.STEPS
+function SprayerRateManager:setIndex(vehicleId, index)
+    local steps = SoilConstants.SPRAYER_RATE.STEPS
+    if index >= 1 and index <= #steps then
+        self.vehicleRates[vehicleId] = index
+    end
+end
+
+--- Cycle rate up by one step. Returns the new index.
+---@param vehicleId number
+---@return number newIndex
+function SprayerRateManager:cycleUp(vehicleId)
+    local steps = SoilConstants.SPRAYER_RATE.STEPS
+    local newIdx = math.min(self:getIndex(vehicleId) + 1, #steps)
+    self.vehicleRates[vehicleId] = newIdx
+    return newIdx
+end
+
+--- Cycle rate down by one step. Returns the new index.
+---@param vehicleId number
+---@return number newIndex
+function SprayerRateManager:cycleDown(vehicleId)
+    local newIdx = math.max(self:getIndex(vehicleId) - 1, 1)
+    self.vehicleRates[vehicleId] = newIdx
+    return newIdx
+end
+
+--- Called on mod unload to release all state.
+function SprayerRateManager:delete()
+    self.vehicleRates = {}
+end

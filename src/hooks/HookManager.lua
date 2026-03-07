@@ -163,7 +163,19 @@ function HookManager:installSprayerHook()
 
                 -- Check if this fill type is a recognized fertilizer
                 if SoilConstants.FERTILIZER_PROFILES[fillType.name] then
-                    g_SoilFertilityManager.soilSystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
+                    -- Scale liters by the per-vehicle application rate
+                    local rm = g_SoilFertilityManager.sprayerRateManager
+                    local rateMultiplier = (rm ~= nil) and rm:getMultiplier(sprayerSelf.id) or 1.0
+                    local effectiveLiters = liters * rateMultiplier
+
+                    g_SoilFertilityManager.soilSystem:onFertilizerApplied(fieldId, fillTypeIndex, effectiveLiters)
+
+                    -- Over-application burn check (only for nutrient fertilizers, not lime)
+                    local entry = SoilConstants.FERTILIZER_PROFILES[fillType.name]
+                    local isNutrientFertilizer = entry and (entry.N or entry.P or entry.K)
+                    if isNutrientFertilizer and rateMultiplier > SoilConstants.SPRAYER_RATE.BURN_RISK_THRESHOLD then
+                        g_SoilFertilityManager.soilSystem:applyBurnEffect(fieldId, rateMultiplier)
+                    end
                 end
             end)
 

@@ -65,6 +65,9 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     end
     self.soilSystem = SoilFertilitySystem.new(self.settings)
 
+    -- Sprayer rate manager (always active — not GUI-dependent)
+    self.sprayerRateManager = SprayerRateManager.new()
+
     -- GUI initialization (client only)
     -- Hooks are installed at file-load time in SoilSettingsUI.lua (runs once).
     -- We just create the instance here; the hooks reference g_SoilFertilityManager.settingsUI.
@@ -154,6 +157,46 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
                 g_inputBinding:endActionEventsModification()
             end
             SoilLogger.info("PlayerInputComponent hook installed for J/K keys")
+        end
+
+        -- Hook Vehicle.registerActionEvents to inject rate up/down keys when the player
+        -- enters any vehicle that has a sprayer specialization (spec_sprayer present).
+        -- Sprayer.registerActionEvents does not exist in FS25 as a static method.
+        if Vehicle and type(Vehicle.registerActionEvents) == "function" then
+            local origVehicleActions = Vehicle.registerActionEvents
+            self._sprayerActionHookOriginal = origVehicleActions
+            Vehicle.registerActionEvents = Utils.appendedFunction(
+                origVehicleActions,
+                function(vehicle, isActiveForInput, isSelected)
+                    -- Only inject for sprayer vehicles when they become the controlled vehicle
+                    if not isActiveForInput then return end
+                    if not vehicle or not vehicle.spec_sprayer then return end
+                    if not g_SoilFertilityManager then return end
+
+                    local _, upId = g_inputBinding:registerActionEvent(
+                        InputAction.SF_RATE_UP, vehicle,
+                        SoilFertilityManager.onSprayerRateUp,
+                        false, true, false, true
+                    )
+                    local _, downId = g_inputBinding:registerActionEvent(
+                        InputAction.SF_RATE_DOWN, vehicle,
+                        SoilFertilityManager.onSprayerRateDown,
+                        false, true, false, true
+                    )
+                    -- Keep the binding text visible so players see it in controls list
+                    if upId then
+                        g_inputBinding:setActionEventText(upId, g_i18n:getText("input_SF_RATE_UP"))
+                        g_inputBinding:setActionEventActive(upId, true)
+                    end
+                    if downId then
+                        g_inputBinding:setActionEventText(downId, g_i18n:getText("input_SF_RATE_DOWN"))
+                        g_inputBinding:setActionEventActive(downId, true)
+                    end
+                end
+            )
+            SoilLogger.info("Vehicle action hook installed for sprayer rate up/down keys")
+        else
+            SoilLogger.warning("Vehicle.registerActionEvents not available — rate keys disabled")
         end
     else
         self.soilHUD = nil
@@ -349,6 +392,24 @@ function SoilFertilityManager:onSoilReportInput()
     end
 end
 
+-- Input callbacks for sprayer rate up/down ([ / ] keys in VEHICLE context)
+-- Note: `self` here is the sprayer vehicle (the action event target), not SoilFertilityManager.
+function SoilFertilityManager.onSprayerRateUp(vehicle)
+    local rm = g_SoilFertilityManager and g_SoilFertilityManager.sprayerRateManager
+    if rm and vehicle and vehicle.id then
+        local newIdx = rm:cycleUp(vehicle.id)
+        SoilNetworkEvents_SendSprayerRate(vehicle.id, newIdx)
+    end
+end
+
+function SoilFertilityManager.onSprayerRateDown(vehicle)
+    local rm = g_SoilFertilityManager and g_SoilFertilityManager.sprayerRateManager
+    if rm and vehicle and vehicle.id then
+        local newIdx = rm:cycleDown(vehicle.id)
+        SoilNetworkEvents_SendSprayerRate(vehicle.id, newIdx)
+    end
+end
+
 --- Save soil data to XML file
 --- Only runs on server in multiplayer, always in singleplayer
 --- Saves to {savegame}/soilData.xml
@@ -439,6 +500,19 @@ function SoilFertilityManager:delete()
         PlayerInputComponent.registerActionEvents = self._inputHookOriginal
         self._inputHookOriginal = nil
         SoilLogger.info("PlayerInputComponent hook restored")
+    end
+
+    -- Restore Vehicle.registerActionEvents hook
+    if self._sprayerActionHookOriginal and Vehicle then
+        Vehicle.registerActionEvents = self._sprayerActionHookOriginal
+        self._sprayerActionHookOriginal = nil
+        SoilLogger.info("Vehicle action hook restored")
+    end
+
+    -- Clean up sprayer rate state
+    if self.sprayerRateManager then
+        self.sprayerRateManager:delete()
+        self.sprayerRateManager = nil
     end
 
     -- Clean up HUD and input actions
