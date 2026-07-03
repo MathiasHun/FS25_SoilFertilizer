@@ -637,6 +637,43 @@ function SoilFertilityManager:onMissionLoaded()
     end
 end
 
+--- Bring the live soil system fully online: sim core, minimap heatmap, per-crop tuning,
+--- saved field data, and derived zone/GRLE state. onMissionStarted calls this once fields
+--- are populated; consoleCommandSoilEnable calls it too so re-enabling mid-session restores
+--- the monitor AND the minimap layer AND field data - not just the sim core. That gap is why
+--- a save that loaded with the mod disabled stayed half-dead after SoilEnable (minimap layer
+--- and field data never re-initialized). Each subsystem rebuilds its own state, so a repeat
+--- call is safe. Guarded so a subsystem error can't propagate (notably it must NOT bubble up
+--- to the load() catch that persists enabled=false).
+function SoilFertilityManager:activateSoilSystem()
+    if not self.soilSystem then return end
+
+    local ok, err = pcall(function()
+        self.soilSystem:initialize()
+
+        -- DMV minimap heatmap - must init AFTER soilSystem so layerSystem is ready
+        if self.soilMinimapLayer then
+            self.soilMinimapLayer:initialize()
+        end
+
+        -- Apply the player-editable per-crop N/P/K overrides (#717) before loading field
+        -- data, so the sim sees tuned rates from the first tick.
+        if self.cropTuning then
+            self.cropTuning:load()
+        end
+
+        self:loadSoilData()
+
+        self.soilSystem:prePopulateAllZoneData()
+        self:seedGRLEFromFieldData()
+    end)
+
+    if not ok then
+        SoilLogger.error("activateSoilSystem failed: %s", tostring(err))
+    end
+    return ok
+end
+
 --- Called when mission actually starts (Mission00.onStartMission).
 --- At this point the loading screen is gone, the player is in the world, and
 --- g_fieldManager.fields is fully populated - safe to initialize the soil system.
@@ -697,23 +734,11 @@ function SoilFertilityManager:onMissionStarted()
         end
 
         SoilLogger.info("Initializing soil system (fields guaranteed populated)...")
-        self.soilSystem:initialize()
+        self:activateSoilSystem()
 
-        -- DMV minimap heatmap - must init AFTER soilSystem so layerSystem is ready
-        if self.soilMinimapLayer then
-            self.soilMinimapLayer:initialize()
-        end
-
-        -- Apply the player-editable per-crop N/P/K overrides (#717) before
-        -- loading field data, so the sim sees tuned rates from the first tick.
-        if self.cropTuning then
-            self.cropTuning:load()
-        end
-
-        self:loadSoilData()
-
-        -- Version "What's new" dialog - queued AFTER loadSoilData so the comparison uses the
-        -- SAVED lastSeenVersion. It used to be queued before the load, which always compared
+        -- Version "What's new" dialog - queued AFTER activateSoilSystem (which runs
+        -- loadSoilData) so the comparison uses the SAVED lastSeenVersion. It used to be
+        -- queued before the load, which always compared
         -- against the "" default, so the dialog reappeared on every load and the
         -- "Don't show again" button never stuck (#665).
         if SoilVersionDialog then
@@ -726,9 +751,6 @@ function SoilFertilityManager:onMissionStarted()
                 self._pendingVersionDialogDelay = 3000
             end
         end
-
-        self.soilSystem:prePopulateAllZoneData()
-        self:seedGRLEFromFieldData()
     end)
 
     if not ok then

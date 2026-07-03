@@ -93,6 +93,12 @@ function SoilSettingsHubBridge.register(mgr)
         hub:registerModule("SoilFertilizer", {
             adminSettings = defs,
             onChange      = function(key, value, playerId) applyChange(key, value) end,
+            -- We own our persistence (FS25_SoilFertilizer.xml) and load it before this
+            -- registration runs, so the hub must mirror-for-display only: never restore
+            -- its own stale copy and replay it back through onChange on load. Without this
+            -- the hub pushed a stale `enabled=false` over our real value every load,
+            -- silently disabling the whole mod.
+            selfPersisted = true,
         })
     end)
 

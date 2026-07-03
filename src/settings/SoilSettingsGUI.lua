@@ -384,7 +384,13 @@ end
 function SoilSettingsGUI:consoleCommandSoilEnable()
     if g_SoilFertilityManager and g_SoilFertilityManager.settings then
         requestSettingChange("enabled", true)
-        if g_SoilFertilityManager.soilSystem then
+        -- Full activation, not just soilSystem:initialize(): if the mod loaded disabled,
+        -- onMissionStarted skipped the minimap heatmap, per-crop tuning, and field-data
+        -- load too, so a bare initialize() left the monitor/layer half-dead. activateSoilSystem
+        -- brings all of it back so re-enabling mid-session needs no reload.
+        if g_SoilFertilityManager.activateSoilSystem then
+            g_SoilFertilityManager:activateSoilSystem()
+        elseif g_SoilFertilityManager.soilSystem then
             g_SoilFertilityManager.soilSystem:initialize()
         end
         return "Soil & Fertilizer Mod enabled"
@@ -401,7 +407,6 @@ function SoilSettingsGUI:consoleCommandSoilDisable()
 end
 
 function SoilSettingsGUI:consoleCommandSetFertility(enabled)
-    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetFertility true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -414,7 +419,6 @@ function SoilSettingsGUI:consoleCommandSetFertility(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetNutrients(enabled)
-    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetNutrients true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -452,7 +456,6 @@ function SoilSettingsGUI:consoleCommandSetNotifications(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetSeasonalEffects(enabled)
-    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetSeasonalEffects true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -465,7 +468,6 @@ function SoilSettingsGUI:consoleCommandSetSeasonalEffects(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetRainEffects(enabled)
-    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetRainEffects true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -478,7 +480,6 @@ function SoilSettingsGUI:consoleCommandSetRainEffects(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetPlowingBonus(enabled)
-    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetPlowingBonus true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end

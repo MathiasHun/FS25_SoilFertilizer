@@ -24,13 +24,14 @@ SoilVersionDialog.INSTANCE = nil
 -- Max 11 lines are visible in the box; if more exist we stop on a bullet boundary and add a "full changelog on GitHub" note.
 -- These are intentionally NOT translated, as they are always in English and often contain technical terms that don't translate well.
 SoilVersionDialog.CHANGELOG = {
-    "- Difficulty now locks the bypass tools: on Realistic and Hardcore the tuning editors,",
-    "    the challenge toggles, and the field cheat tools are greyed out and locked",
-    "- Any setting softened on Simple is reset to its default when you move to a harder difficulty,",
-    "    so an easy value can no longer carry over into Realistic or Hardcore",
-    "- The matching console commands are locked the same way",
+    "- Difficulty locks the sim-bypass tools: on Realistic and Hardcore the tuning editors",
+    "    and the field cheat tools (Set State, Set Disease, Recover, Drain) are greyed and locked",
+    "- Fertilizer Costs and Replenishment Rate lock too, so the sim can't be softened past Simple",
+    "- Every other toggle (fertility, nutrients, seasonal, rain, plowing, compaction, disease",
+    "    climate) stays editable at any difficulty - your game, your call",
+    "- The matching console commands follow the same rule",
     "- Disease Difficulty is now shown on the Admin settings page too, next to Disease Climate",
-    "- These tools stay fully available on Simple difficulty"
+    "- Fixed: re-enabling the mod mid-game now fully restores the monitor, minimap layer and data"
 }
 
 -- ── i18n helper ───────────────────────────────────────────
