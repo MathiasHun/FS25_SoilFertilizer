@@ -31,18 +31,21 @@ SettingsSchema.definitions = {
         type = "boolean",
         default = true,
         uiId = "sf_fertility",
+        simpleOnly = true,  -- bypass/soften toggle: editable on Simple only (forced to default above)
     },
     {
         id = "nutrientCycles",
         type = "boolean",
         default = true,
         uiId = "sf_nutrients",
+        simpleOnly = true,
     },
     {
         id = "fertilizerCosts",
         type = "boolean",
         default = true,
         uiId = "sf_fertilizer_cost",
+        simpleOnly = true,
     },
     {
         id = "showNotifications",
@@ -119,18 +122,21 @@ SettingsSchema.definitions = {
         type = "boolean",
         default = true,
         uiId = "sf_seasonal_effects",
+        simpleOnly = true,
     },
     {
         id = "rainEffects",
         type = "boolean",
         default = true,
         uiId = "sf_rain_effects",
+        simpleOnly = true,
     },
     {
         id = "plowingBonus",
         type = "boolean",
         default = true,
         uiId = "sf_plowing_bonus",
+        simpleOnly = true,
     },
     {
         id = "residueIncorporation",
@@ -163,6 +169,7 @@ SettingsSchema.definitions = {
         min = 1,
         max = 4,
         uiId = "sf_dm",
+        simpleOnly = true,
     },
     {
         id = "diseaseDifficulty",
@@ -177,6 +184,7 @@ SettingsSchema.definitions = {
         type = "boolean",
         default = true,
         uiId = "sf_compaction",
+        simpleOnly = true,
     },
     {
         id = "difficulty",
@@ -193,6 +201,7 @@ SettingsSchema.definitions = {
         min = 1,
         max = 5,
         uiId = "sf_rr",
+        simpleOnly = true,
     },
     {
         id = "useImperialUnits",

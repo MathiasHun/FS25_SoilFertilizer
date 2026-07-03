@@ -57,6 +57,14 @@ function SoilFertilitySystem.new(settings)
     self.insecticideAppliedDay = {}  -- fieldId → game day insecticide last reduced pressure
     self.fungicideAppliedDay  = {}   -- fieldId → game day fungicide last reduced pressure
 
+    -- Harvest event bus (cross-mod). External mods (the ecosystem diseased-food /
+    -- feed model) register a listener via g_currentMission.soilHarvestBus and receive
+    -- a payload at each harvest cut carrying the harvested fill type + liters AND the
+    -- field's disease severity AT harvest. Disease is a growing-crop property that a
+    -- plain harvest would otherwise drop at the combine, so we expose it here before it
+    -- is gone. Keyed by name so a re-registering mod replaces its own listener.
+    self.harvestListeners = {}
+
     -- =========================================================
     -- PERF: Owned-field active set + batched daily simulation
     -- =========================================================
@@ -435,6 +443,58 @@ function SoilFertilitySystem:computeYieldModifier(fieldId, fruitTypeIndex)
     return modifier
 end
 
+--- Register a harvest-event listener (cross-mod). `fn` is called at each harvest cut
+--- with a single payload table (see _emitHarvest). Keyed by `name` so a mod replaces
+--- its own listener on re-register rather than stacking duplicates.
+---@param name string  unique listener id (usually the consuming mod name)
+---@param fn function  callback(payload)
+function SoilFertilitySystem:subscribeHarvest(name, fn)
+    if type(name) ~= "string" or type(fn) ~= "function" then return false end
+    self.harvestListeners[name] = fn
+    SoilLogger.info("Harvest bus: listener '%s' registered", name)
+    return true
+end
+
+--- Remove a previously registered harvest-event listener.
+---@param name string
+function SoilFertilitySystem:unsubscribeHarvest(name)
+    if self.harvestListeners[name] == nil then return false end
+    self.harvestListeners[name] = nil
+    SoilLogger.info("Harvest bus: listener '%s' removed", name)
+    return true
+end
+
+--- Fire all harvest listeners with the harvested fill type + liters and the field's
+--- disease state AT harvest. Called once per harvest cut (onHarvest is driven by
+--- Combine.addCutterArea and fires many times per second), so `liters`/`area` are the
+--- INCREMENTAL amount for this cut - a consumer accumulates them per field itself,
+--- exactly as the internal nutrient path does. Each listener is pcall-guarded: a
+--- misbehaving external listener must never crash the harvest path. No-op when no one
+--- is listening, so the common case costs a single table lookup.
+function SoilFertilitySystem:_emitHarvest(fieldId, fruitTypeIndex, liters, area)
+    if next(self.harvestListeners) == nil then return end
+    local field = self.fieldData[fieldId]
+    local payload = {
+        fieldId              = fieldId,
+        fruitTypeIndex       = fruitTypeIndex,
+        liters               = liters or 0,
+        area                 = area or 0,
+        -- Disease severity at harvest. diseasePressure (0-100 live) + activeDisease
+        -- (named pathogen id) are the meaningful inputs for a contamination/mycotoxin
+        -- model; activeDiseaseSeverity is a yield-penalty tier multiplier, included for
+        -- completeness. All read-only snapshots of the field's state this frame.
+        diseasePressure      = field and field.diseasePressure or 0,
+        activeDisease        = field and field.activeDisease or nil,
+        activeDiseaseSeverity = field and field.activeDiseaseSeverity or 1.0,
+    }
+    for name, fn in pairs(self.harvestListeners) do
+        local ok, err = pcall(fn, payload)
+        if not ok then
+            SoilLogger.warning("Harvest bus: listener '%s' errored: %s", tostring(name), tostring(err))
+        end
+    end
+end
+
 function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRatio, area)
     -- Harvest-time state resets: pest population disperses when crop is cleared
     if self.settings.pestPressure and SoilConstants.PEST_PRESSURE then
@@ -461,6 +521,11 @@ function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRat
     -- Nutrient depletion uses original (biological) liters - the soil gave up these
     -- nutrients regardless of the yield modifier applied in the combine hook.
     self:updateFieldNutrients(fieldId, fruitTypeIndex, liters, strawRatio, area)
+
+    -- Cross-mod harvest bus: emit BEFORE any harvest-time disease reset so the field's
+    -- disease severity at harvest is still reachable (the ecosystem diseased-food model
+    -- needs harvested liters + severity per field/fill type). No-op if nothing listens.
+    self:_emitHarvest(fieldId, fruitTypeIndex, liters, area)
 
     -- Reset session spray coverage so the next fertilizing pass starts fresh
     local harvestField = self.fieldData[fieldId]

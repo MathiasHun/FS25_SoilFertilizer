@@ -99,6 +99,12 @@ function SoilCropTuningPanel:delete()
 end
 
 function SoilCropTuningPanel:open()
+    -- Bypass tool: Simple difficulty only. Hard choke point so any trigger (menu button,
+    -- console, hotkey) honors the gate, not just the settings-panel button.
+    if self.settings and not self.settings:allowsBypassTools() then
+        SoilLogger.info("[SoilCropTuningPanel] Open blocked: bypass tools are Simple-difficulty only")
+        return
+    end
     if not self.initialized then self:initialize() end
     self.isVisible = true
     self.scrollPx  = 0

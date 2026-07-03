@@ -182,6 +182,14 @@ function SoilSettingSyncEvent:run(connection)
         SoilLogger.info("Client: Setting '%s' synced from %s to %s",
             self.settingName, tostring(oldValue), tostring(self.settingValue))
 
+        -- A synced difficulty change must force the soften toggles on the client too, so
+        -- it matches the server (which enforced in save() but only broadcasts the changed
+        -- setting). Deterministic, so no extra sync traffic is needed. Cheap on any sync.
+        if self.settingName == "difficulty"
+            and g_SoilFertilityManager.settings.enforceBypassLock then
+            g_SoilFertilityManager.settings:enforceBypassLock()
+        end
+
         -- Refresh UI if open
         if g_SoilFertilityManager.settingsUI then
             g_SoilFertilityManager.settingsUI:refreshUI()

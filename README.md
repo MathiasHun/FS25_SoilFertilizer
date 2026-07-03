@@ -326,6 +326,9 @@ The full panel ships with its key **unbound** to avoid clashing with other mods.
 
 Every core rate has its own multiplier: nutrient depletion, fertilizer efficiency, rain leaching, seasonal strength, pest growth, disease growth, fallow recovery, and compaction build-up / decay. You can also set the starting N / P / K / pH / OM that every new field rolls with. Defaults reproduce the standard simulation - move a value only if you want that part of the model faster, slower, or stronger.
 
+> [!IMPORTANT]
+> **Difficulty locks the bypass tools.** On **Realistic** and **Hardcore** the tuning editors, the challenge toggles (fertility, nutrients, fertilizer costs, seasonal, rain, plowing, compaction, disease climate, replenishment rate) and the field cheat tools (Set State, Set Disease, Recover Field, Drain Vehicle) are greyed out and locked, and any softened value is reset to its default. These are available on **Simple** only, so the simulation stays honest once you commit to a harder run. The matching console commands are locked the same way. The Difficulty selector itself always stays changeable, so you can drop back to Simple if you want to tinker.
+
 > [!NOTE]
 > In multiplayer, settings are **server-authoritative** - the host's settings are pushed to all clients on join. Non-admin clients can see but not change server settings. HUD display preferences are always local and can be changed by any player.
 

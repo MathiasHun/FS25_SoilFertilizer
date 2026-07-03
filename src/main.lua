@@ -425,6 +425,17 @@ local function load(mission)
             FieldSentry_API.attachBridge(mission)
         end
 
+        -- Cross-mod harvest bus: lets the ecosystem diseased-food / feed model read a
+        -- field's disease severity + harvested liters AT harvest, before the harvest
+        -- clears the crop's disease state. Subscribe/unsubscribe route to the live
+        -- SoilFertilitySystem; the payload shape is defined in _emitHarvest.
+        if sfm.soilSystem then
+            mission.soilHarvestBus = {
+                subscribe   = function(name, fn) return sfm.soilSystem:subscribeHarvest(name, fn) end,
+                unsubscribe = function(name)     return sfm.soilSystem:unsubscribeHarvest(name) end,
+            }
+        end
+
         SoilLogger.info("Initialized in %s mode", disableGUI and "server/console" or "full")
     end
 end
@@ -438,6 +449,7 @@ local function unload()
         if g_currentMission then
             g_currentMission.soilFertilityManager = nil
             g_currentMission.fieldSentry = nil   -- #83 drop the cross-mod bridge
+            g_currentMission.soilHarvestBus = nil -- drop the harvest-event bridge
         end
     end
     -- Restore InputHelpDisplay.draw if we hooked it, so a session reload doesn't accumulate appends.

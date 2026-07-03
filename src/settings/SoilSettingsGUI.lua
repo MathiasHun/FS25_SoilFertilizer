@@ -19,6 +19,18 @@ local function requestSettingChange(settingId, value)
     end
 end
 
+-- Returns a refusal message when bypass/soften console commands are locked at the current
+-- difficulty (Realistic/Hardcore), or nil when allowed (Simple). Mirrors the settings-panel
+-- lock so no surface (panel, console, hotkey) can soften the sim above Simple. Policy lives
+-- in Settings:allowsBypassTools().
+local function bypassLockedMsg()
+    local s = g_SoilFertilityManager and g_SoilFertilityManager.settings
+    if s and s.allowsBypassTools and not s:allowsBypassTools() then
+        return string.format("Locked on %s difficulty. Available on Simple only.", s:getDifficultyName())
+    end
+    return nil
+end
+
 function SoilSettingsGUI.new()
     local self = setmetatable({}, SoilSettingsGUI_mt)
     return self
@@ -270,6 +282,7 @@ function SoilSettingsGUI:consoleCommandSetDiseaseDifficulty(difficulty)
 end
 
 function SoilSettingsGUI:consoleCommandSetDisease(pressure, diseaseId)
+    local locked = bypassLockedMsg(); if locked then return locked end
     local sfm = g_SoilFertilityManager
     if not (sfm and sfm.soilSystem) then return "Error: Soil Mod not initialized" end
     if not sfm.settings.diseasePressure then
@@ -388,6 +401,7 @@ function SoilSettingsGUI:consoleCommandSoilDisable()
 end
 
 function SoilSettingsGUI:consoleCommandSetFertility(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetFertility true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -400,6 +414,7 @@ function SoilSettingsGUI:consoleCommandSetFertility(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetNutrients(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetNutrients true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -412,6 +427,7 @@ function SoilSettingsGUI:consoleCommandSetNutrients(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetFertilizerCosts(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetFertilizerCosts true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -436,6 +452,7 @@ function SoilSettingsGUI:consoleCommandSetNotifications(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetSeasonalEffects(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetSeasonalEffects true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -448,6 +465,7 @@ function SoilSettingsGUI:consoleCommandSetSeasonalEffects(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetRainEffects(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetRainEffects true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -460,6 +478,7 @@ function SoilSettingsGUI:consoleCommandSetRainEffects(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetPlowingBonus(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetPlowingBonus true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -730,6 +749,7 @@ end
 -- offers no way to drain them. This command is the escape
 -- hatch so players can switch products without wasting them.
 function SoilSettingsGUI:consoleCommandDrainVehicle()
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_currentMission then
         return "Error: No active mission"
     end
@@ -852,6 +872,7 @@ function SoilSettingsGUI:consoleCommandDrainVehicle()
 end
 
 function SoilSettingsGUI:consoleCommandSetState(fieldId, n, p, k, ph, om)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_SoilFertilityManager or not g_SoilFertilityManager.soilSystem then
         return "Error: Soil Mod not initialized"
     end
@@ -916,6 +937,7 @@ function SoilSettingsGUI:consoleCommandSetState(fieldId, n, p, k, ph, om)
 end
 
 function SoilSettingsGUI:consoleCommandRecoverField(fieldId)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_SoilFertilityManager or not g_SoilFertilityManager.soilSystem then
         return "Error: Soil Mod not initialized"
     end
