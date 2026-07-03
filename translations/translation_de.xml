@@ -313,6 +313,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Alle Bodensimulationen laufen auf dem Server. Clients erhalten beim Beitritt vollständige Felddaten und Einstellungen, mit automatischem Wiederholungsversuch, wenn der Server noch lädt. HUD-Anzeigeeinstellungen (Position, Thema, Größe) sind pro Spieler und werden nie mit dem Server synchronisiert." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Dedizierte Server" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Dedizierte Server führen die vollständige Simulation ohne HUD- oder GUI-Overhead aus - dies ist erwartet und normal. Verwenden Sie Konsolenbefehle (soilStatus, SoilSetDifficulty, SoilShowSettings usw.), um Einstellungen auf einem dedizierten Server zu verwalten und zu überprüfen." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Fruchtfolge" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Fruchtfolgenbonus und Monokultur-Ermüdung aktivieren/deaktivieren (Leguminosensequenzen stellen Stickstoff wieder her; aufeinanderfolgende Saisons mit derselben Frucht erhöhen die Verarmung)" eh="958b4212" />

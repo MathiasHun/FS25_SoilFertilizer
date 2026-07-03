@@ -325,6 +325,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="所有土壤模拟运算在服务器端运行；玩家加入时自动接收完整田地数据与设置，服务器未加载完成会自动重试。悬浮窗位置、配色等个人设置仅本地生效，不同步服务器。" eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="专用服务器" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="专用服务器仅运行模拟运算，无悬浮窗和界面负载属于正常现象。可使用控制台指令（soilStatus、SoilSetDifficulty等）管理和查看模组设置。" eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
 
     <e k="sf_crop_rotation_short" v="轮作机制" eh="def2c162" />

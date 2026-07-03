@@ -313,6 +313,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Toda simulación ocurre en el servidor. Los clientes reciben datos al unirse. Los ajustes de HUD son locales y nunca se sincronizan al servidor." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Servidores dedicados" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Ejecutan la simulación completa sin HUD ni GUI. Usa comandos de consola (soilStatus, SoilSetDifficulty, etc.) para gestionar ajustes en un dedicado." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Rotación de cultivos" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Activar/desactivar bono por rotación y fatiga por monocultivo (leguminosas restauran N; cultivos iguales seguidos aumentan agotamiento)" eh="958b4212" />

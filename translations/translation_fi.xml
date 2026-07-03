@@ -314,6 +314,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Simulaatio ajetaan palvelimella. Pelaajat saavat tiedot liittyessään. HUD-asetukset ovat pelaajakohtaisia eikä niitä synkronoida." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Dedikoidut palvelimet" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Palvelin ajaa simulaatiota ilman käyttöliittymää. Käytä konsolikomentoja (soilStatus, SoilSetDifficulty jne.) asetusten hallintaan dedikoidulla palvelimella." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Viljelykierto" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Ota käyttöön/poista käytöstä viljelykiertobonus ja monokulttuurin haitat (palkokasvit palauttavat typpeä; sama kasvi peräkkäin lisää kulutusta)" eh="958b4212" />

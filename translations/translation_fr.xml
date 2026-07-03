@@ -308,6 +308,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Toute la simulation du sol s’exécute sur le serveur. Les clients reçoivent toutes les données des champs et les paramètres à la connexion, avec une nouvelle tentative automatique si le serveur est encore en cours de chargement. Les paramètres d’affichage du HUD (position, thème, taille) sont propres à chaque joueur et ne sont jamais synchronisés avec le serveur." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Serveurs dédiés" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Les serveurs dédiés exécutent toute la simulation sans surcharge HUD ou interface graphique - c’est normal. Utilisez les commandes console (soilStatus, SoilSetDifficulty, SoilShowSettings, etc.) pour gérer et vérifier les paramètres sur un serveur dédié." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibilité et fonctionnement" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Compatibilité des mods" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Sol &amp; Engrais utilise des hooks de fonction ajoutés, il fonctionne donc sans conflit avec Courseplay, AutoDrive et la plupart des mods d'équipement. Lorsque Precision Farming est actif dans une sauvegarde, le mod le détecte et se désactive automatiquement, afin que les deux ne se disputent jamais les mêmes champs." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Modifier les réglages" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="En multijoueur, seuls les administrateurs du serveur peuvent modifier les réglages. Modifiez-les depuis le panneau ou la console sur l'hôte : chaque changement est validé puis transmis à tous les clients. En difficulté Réaliste et Hardcore, les éditeurs de réglage et les bascules qui allègent la simulation sont verrouillés, afin que personne ne puisse adoucir la simulation en cours de partie." />
     <e k="sf_crop_rotation_short" v="Rotation des cultures" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Activer/désactiver le bonus de rotation des cultures et la fatigue des monocultures (les légumineuses restaurent l’azote ; les cultures répétées augmentent la déplétion)" eh="958b4212" />
     <e k="sf_gypsum_title" v="Gypse (pH-)" eh="d66da34c" />

@@ -314,6 +314,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Tüm toprak simülasyonu sunucuda çalışır. İstemciler katıldıklarında tam tarla verilerini ve ayarlarını alırlar; sunucu hala yükleniyorsa otomatik yeniden deneme yapılır. HUD görüntüleme ayarları (konum, tema, boyut) oyuncu bazlıdır ve asla sunucuyla senkronize edilmez." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Atanmış Sunucular" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Atanmış sunucular, herhangi bir HUD veya GUI yükü olmadan tam simülasyonu çalıştırır - bu beklenen ve normal bir durumdur. Atanmış bir sunucudaki ayarları yönetmek ve doğrulamak için konsol komutlarını (soilStatus, SoilSetDifficulty, SoilShowSettings vb.) kullanın." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Münavebe" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Münavebe bonusunu ve monokültür yorgunluğunu etkinleştir/devre dışı bırak (baklagil dizileri azotu geri kazandırır; üst üste sezonlarda aynı ürün ekilmesi tükenmeyi artırır)" eh="958b4212" />

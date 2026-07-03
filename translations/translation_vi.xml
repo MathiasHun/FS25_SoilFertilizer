@@ -313,6 +313,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Mọi mô phỏng đất chạy trên máy chủ. Người chơi nhận dữ liệu khi tham gia. Các cài đặt hiển thị HUD là riêng tư cho từng người và không bao giờ đồng bộ lên máy chủ." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Máy chủ chuyên dụng" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Máy chủ chuyên dụng chạy mô phỏng đầy đủ mà không có HUD/GUI - đây là điều bình thường. Dùng lệnh console (soilStatus, SoilSetDifficulty...) để quản lý trên máy chủ chuyên dụng." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Luân canh cây trồng" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Bật/tắt thưởng luân canh và mệt mỏi do độc canh (trồng họ đậu giúp hồi đạm; trồng liên tiếp cùng một loại cây làm tăng sự cạn kiệt)" eh="958b4212" />
