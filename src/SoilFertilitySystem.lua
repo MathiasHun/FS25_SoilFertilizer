@@ -2455,6 +2455,28 @@ function SoilFertilitySystem:_computeInitialSoil(fieldId, farmlandObj)
     return soil
 end
 
+--- Arable crop-polygon area (ha) for a farmland parcel, or nil if it cannot be resolved yet.
+--- The soil model is keyed by farmland id (getOrCreateField(farmlandId)), but one parcel can
+--- bundle a farmstead / roads / hedges with the arable field (#719, Riverbend Springs farmland
+--- 66). Using the mapped crop field's own areaHa scopes per-hectare math and the compaction
+--- average to worked ground instead of the whole parcel, which is ~2x larger. Returns nil (not
+--- the parcel area) so each caller keeps control of its own fallback.
+---@param farmlandId number
+---@return number|nil cropAreaHa
+function SoilFertilitySystem:_resolveCropAreaHa(farmlandId)
+    if not (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) then return nil end
+    local cropField = g_fieldManager.farmlandIdFieldMapping[farmlandId]
+    if not cropField then return nil end
+    -- Read the areaHa property directly, the proven pattern from the #475/#476 area fix.
+    local areaHa = cropField.areaHa
+    -- areaHa defaults to 1.0 until the field polygon loads; treat ~1.0 as "not ready yet" so the
+    -- placeholder is never locked in (matches the existing #475/#476 crop-area guard).
+    if areaHa and areaHa > 0 and math.abs(areaHa - 1.0) > 0.05 then
+        return areaHa
+    end
+    return nil
+end
+
 function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
     if not fieldId or fieldId <= 0 then return nil end
 
@@ -2488,12 +2510,20 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
     local confirmedArea = false
     local initialArea = area or 1.0
     local farmlandObj = g_farmlandManager and g_farmlandManager:getFarmlandById(fieldId) or nil
-    if farmlandObj and not area and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-        initialArea = farmlandObj.areaInHa
-        confirmedArea = true
-    end
     if area and area > 0 then
         confirmedArea = true
+    else
+        -- Prefer the arable crop-polygon area over the whole farmland parcel (#719).
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            initialArea = cropArea
+            confirmedArea = true
+        elseif farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
+            -- Crop polygon not loaded yet: seed a sane nonzero area from the parcel but leave it
+            -- UNconfirmed so the first spray/herbicide pass swaps in the real crop area.
+            initialArea = farmlandObj.areaInHa
+            confirmedArea = false
+        end
     end
 
     -- Roll the starting soil profile (regional gradient + per-field noise, plus any
@@ -3716,25 +3746,26 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
     -- Pass% to cap at ~50% after a full field pass (issue #475/#476).
     -- Also re-confirm at the start of every new session so field-size changes (issue #507) take effect.
     local _isNewSession = not next(field.sessionCoverageCells or {})
-    if (not field._farmlandAreaConfirmed or _isNewSession) and g_farmlandManager then
-        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-            -- Try crop polygon area via farmland mapping (g_fieldManager has no getFieldAtWorldPosition)
-            local cropField = nil
-            if g_farmlandManager and self._lastSprayX and self._lastSprayZ then
-                local _fl = g_farmlandManager:getFarmlandAtWorldPosition(self._lastSprayX, self._lastSprayZ)
-                if _fl and g_fieldManager and g_fieldManager.farmlandIdFieldMapping then
-                    cropField = g_fieldManager.farmlandIdFieldMapping[_fl.id]
-                end
-            end
-            local cropArea  = cropField and cropField.areaHa
-            if cropArea and math.abs(cropArea - 1.0) > 0.05 then
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        -- Prefer the arable crop-polygon area, not the whole farmland parcel (#719). The parcel
+        -- includes roads/hedges/yard (~2x crop area) which skewed Pass%, per-ha rates, and the
+        -- compaction average. Resolve straight off the farmland->field mapping (no spray position
+        -- needed) so it works from the first pass and on dedicated servers.
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
                 field.fieldArea = cropArea
-            else
+                field.compactionTotalCells = nil  -- recompute the average denominator on the corrected area
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            -- Crop polygon not loaded yet and area still at the 1.0 default: seed from the parcel
+            -- so per-ha math is not stuck at 1 ha, but stay unconfirmed so a later pass corrects it.
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
                 field.fieldArea = farmlandObj.areaInHa
             end
         end
-        field._farmlandAreaConfirmed = true
     end
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
@@ -4311,12 +4342,21 @@ function SoilFertilitySystem:onHerbicideAppliedDirect(fieldId, effectiveness, li
 
     -- Confirm field area from farmland on first herbicide application (mirrors applyFertilizer).
     -- Without this, newly-created fields default to 1.0 ha, making targetVol wrong on dedi servers.
-    if not field._farmlandAreaConfirmed and g_farmlandManager then
-        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-            field.fieldArea = farmlandObj.areaInHa
+    if not field._farmlandAreaConfirmed then
+        -- Prefer the arable crop-polygon area over the parcel (#719); mirrors applyFertilizer.
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
         end
-        field._farmlandAreaConfirmed = true
     end
 
     local areaInHa = field.fieldArea or 1.0

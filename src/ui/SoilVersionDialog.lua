@@ -31,7 +31,9 @@ SoilVersionDialog.CHANGELOG = {
     "    climate) stays editable at any difficulty - your game, your call",
     "- The matching console commands follow the same rule",
     "- Disease Difficulty is now shown on the Admin settings page too, next to Disease Climate",
-    "- Fixed: re-enabling the mod mid-game now fully restores the monitor, minimap layer and data"
+    "- Fixed: re-enabling the mod mid-game now fully restores the monitor, minimap layer and data",
+    "- Fixed: soil area now uses the arable field, not the whole farmland parcel, so a field that",
+    "    shares a parcel with a farmstead no longer skews compaction and per-hectare values (#719)"
 }
 
 -- ── i18n helper ───────────────────────────────────────────
