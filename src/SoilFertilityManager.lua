@@ -51,6 +51,9 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     end
     self.soilSystem = SoilFertilitySystem.new(self.settings)
 
+    -- Organic certification: per-field state layer over the soil substrate.
+    self.organic = OrganicCertification and OrganicCertification.new(self.soilSystem) or nil
+
     -- Sprayer rate manager (always active - not GUI-dependent)
     self.sprayerRateManager = SprayerRateManager.new()
     self._autoRateTimer = 0  -- throttle timer for auto-rate updates
@@ -73,6 +76,9 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     -- Console commands
     self.settingsGUI = SoilSettingsGUI.new()
     self.settingsGUI:registerConsoleCommands()
+    if self.organic then
+        self.organic:registerConsoleCommands()
+    end
 
     -- HUD (client only)
     if shouldInitGUI then

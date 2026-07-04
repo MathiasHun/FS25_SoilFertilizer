@@ -642,6 +642,12 @@ function SoilFertilitySystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
 
     SoilLogger.debug("Fertilizer: Field %d, %s, %.4fL", fieldId, fillType and fillType.name or "unknown", liters)
 
+    -- Organic certification compliance: a synthetic (non-approved) input on a
+    -- transitioning or certified field is a breach (full reset to conventional).
+    if g_SoilFertilityManager and g_SoilFertilityManager.organic and fillType then
+        g_SoilFertilityManager.organic:onInputApplied(fieldId, fillType.name)
+    end
+
     -- Trigger overlay refresh so the map tile color updates promptly after spraying.
     -- Throttled to once every 2 seconds to avoid rebuilding samplePoints every frame.
     local now = (g_currentMission and g_currentMission.time) or 0
@@ -1979,6 +1985,10 @@ function SoilFertilitySystem:onEnvironmentUpdate(env, dt)
     if currentDay ~= self.lastUpdateDay then
         self.lastUpdateDay = currentDay
         self:updateDailySoil()
+        -- Advance organic transitions (uses the monotonic day internally).
+        if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+            g_SoilFertilityManager.organic:onDayChanged()
+        end
     end
 
     -- Rain effects
@@ -4899,6 +4909,11 @@ function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
             setXMLFloat(xmlFile, fieldKey .. "#compaction", field.compaction or 0)
             setXMLFloat(xmlFile, fieldKey .. "#amendBurnPenalty", field.amendBurnPenalty or 0)
 
+            -- Organic certification state (state / transition clock / breaches)
+            if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+                g_SoilFertilityManager.organic:saveFieldState(xmlFile, fieldKey, field)
+            end
+
             -- Persist the frozen yield modifier so an in-progress harvest keeps the exact
             -- same yield (and any amendment burn baked into it on the first cut) across a
             -- save/reload. Without this, reloading recomputed the modifier from the
@@ -5021,6 +5036,11 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             sessionCoverageCells = {},
             sessionLastProduct = nil,
         }
+
+        -- Organic certification state (leaves the field conventional if absent)
+        if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+            g_SoilFertilityManager.organic:loadFieldState(xmlFile, fieldKey, self.fieldData[fieldId])
+        end
 
         -- Restore only the DAILY coverage so the daily pass% and protection thresholds
         -- carry across reloads (#608). Do NOT restore the SESSION coverage: it is
