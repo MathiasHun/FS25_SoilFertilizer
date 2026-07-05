@@ -653,20 +653,31 @@ function SoilHUD:update(dt)
     -- avoids string.format calls inside draw() which runs at 60 FPS.
     local info = self.cachedFieldInfo
     if info then
-        -- Coverage text
-        local cov = info.sessionCoverageFraction or info.coverageFraction or 0
-        if sprayer and cov > 0 then
-            local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
-            local covPct = math.floor(cov * 100 + 0.5)
-            local lastProd = info.sessionLastProduct
-            if lastProd then
-                local ft = g_fillTypeManager and g_fillTypeManager:getFillTypeByName(lastProd)
-                local productLabel = (ft and ft.title) or lastProd
-                self._fmt_covText = string.format(g_i18n:getText("sf_hud_pass_coverage"), covPct, productLabel)
-            else
+        -- Coverage text: show both session (per-pass, resets on save/reload) and daily (persists)
+        local sessCov = info.sessionCoverageFraction or 0
+        local dayCov  = info.coverageFraction or 0
+        local showSession = sprayer and sessCov > 0
+        local showDay     = dayCov > 0
+        if showSession or showDay then
+            local parts = {}
+            if showDay then
+                local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
+                local dayPct = math.floor(dayCov * 100 + 0.5)
                 local minPct = math.floor(minCov * 100 + 0.5)
-                self._fmt_covText = string.format(g_i18n:getText("sf_hud_coverage"), covPct, minPct)
+                table.insert(parts, string.format(g_i18n:getText("sf_hud_coverage"), dayPct, minPct))
             end
+            if showSession then
+                local sessPct = math.floor(sessCov * 100 + 0.5)
+                local lastProd = info.sessionLastProduct
+                if lastProd then
+                    local ft = g_fillTypeManager and g_fillTypeManager:getFillTypeByName(lastProd)
+                    local productLabel = (ft and ft.title) or lastProd
+                    table.insert(parts, string.format(g_i18n:getText("sf_hud_pass_coverage"), sessPct, productLabel))
+                else
+                    table.insert(parts, string.format(g_i18n:getText("sf_hud_pass_noproduct"), sessPct))
+                end
+            end
+            self._fmt_covText = table.concat(parts, "\n")
         else
             self._fmt_covText = nil
         end

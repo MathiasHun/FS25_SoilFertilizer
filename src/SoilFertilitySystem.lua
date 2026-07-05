@@ -3704,17 +3704,17 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
                     cropGrowthState  = fs.growthState
                 end
             end
-            if hasCrop then
-                -- Perennial forage (grass, meadow, alfalfa…) is exempt from amendment burn
-                -- while the sward is short - young regrowth or freshly cut. Liming or spreading
-                -- organics on a short/cut sward is standard practice (small leaf area, low burn
-                -- risk), so only penalise once it has regrown into its harvest window (tall).
-                -- Annual crops are never exempt. Shared by lime (#646) and organic matter
-                -- (#629/#645).
-                -- A short/early crop must not take the amendment burn: a seedling annual or a
-                -- short/cut perennial sward has no leaf canopy to scorch (#645/#646/#681). The
-                -- shared helper decides whether the crop is established enough to actually burn.
-                local burnExempt = not self:isAmendmentBurnRisk(cropFruitIndex, cropGrowthState)
+            -- Perennial forage (grass, meadow, alfalfa…) is exempt from amendment burn
+            -- while the sward is short - young regrowth or freshly cut. Liming or spreading
+            -- organics on a short/cut sward is standard practice (small leaf area, low burn
+            -- risk), so only penalise once it has regrown into its harvest window (tall).
+            -- Annual crops are never exempt. Shared by lime (#646) and organic matter
+            -- (#629/#645).
+            -- A short/early crop must not take the amendment burn: a seedling annual or a
+            -- short/cut perennial sward has no leaf canopy to scorch (#645/#646/#681). The
+            -- shared helper decides whether the crop is established enough to actually burn.
+            local burnExempt = not hasCrop or not self:isAmendmentBurnRisk(cropFruitIndex, cropGrowthState)
+            if hasCrop and not burnExempt then
 
                 local ab = SoilConstants.AMEND_BURN
                 if isLimeAmendment then

@@ -670,6 +670,14 @@ function SoilSprayerInfoPanel:draw()
         end
 
         -- ── Cell 1: Coverage % + mini bar ────────────────────────
+        -- NOTE (#725): this is sessionCoverageFraction, a per-pass counter that
+        -- intentionally resets to 0 on save/reload (see SoilFertilitySystem.lua,
+        -- fix for #640). It is NOT the field's overall/daily coverage, and it does
+        -- NOT reflect nutrient/pH state. Without a caption, players read "0%"
+        -- after a reload as "my spraying got erased", when only the pass counter
+        -- restarted and applied pH/nutrients were saved correctly. The tiny
+        -- "PASS" caption below disambiguates this, mirroring the session/day
+        -- split already shown in SoilHUD.lua's coverage text.
         local covPct = math.floor(sessCov * 100 + 0.5)
         local covStr = string.format("%d%%", covPct)
         local covCol = (sessCov >= 0.80) and SoilSprayerInfoPanel.C_GOOD
@@ -691,6 +699,14 @@ function SoilSprayerInfoPanel:draw()
                 self:drawRect(msx, mbY, mSW * mfrac, mbH, covCol)
             end
         end
+        -- Tiny caption above the mini bar so the % isn't mistaken for overall
+        -- field coverage. Left as a short unlocalized abbreviation, matching
+        -- the existing precedent of hardcoded "ha" unit labels in cells 2/3.
+        local capFs = statFs * 0.55
+        setTextAlignment(RenderText.ALIGN_CENTER)
+        setTextColor(SoilSprayerInfoPanel.C_DIM[1], SoilSprayerInfoPanel.C_DIM[2],
+                     SoilSprayerInfoPanel.C_DIM[3], SoilSprayerInfoPanel.C_DIM[4] or 1)
+        renderText(panelX + cellW * 0.5, mbY + mbH + 0.0018*sc, capFs, "PASS")
         setTextAlignment(RenderText.ALIGN_CENTER)
         setTextColor(covCol[1], covCol[2], covCol[3], covCol[4] or 1)
         renderText(panelX + cellW * 0.5,
