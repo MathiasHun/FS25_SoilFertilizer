@@ -4351,8 +4351,9 @@ function SoilFertilitySystem:onHerbicideAppliedDirect(fieldId, effectiveness, li
     if not field then return end
 
     -- Confirm field area from farmland on first herbicide application (mirrors applyFertilizer).
-    -- Without this, newly-created fields default to 1.0 ha, making targetVol wrong on dedi servers.
-    if not field._farmlandAreaConfirmed then
+    -- Also re-check at the start of every new session so field-size changes (issue #507/#726) take effect.
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
         -- Prefer the arable crop-polygon area over the parcel (#719); mirrors applyFertilizer.
         local cropArea = self:_resolveCropAreaHa(fieldId)
         if cropArea then
@@ -4433,8 +4434,26 @@ end
 
 function SoilFertilitySystem:onInsecticideAppliedDirect(fieldId, effectiveness, liters)
     if not self.settings.pestPressure then return end
-    local field = self.fieldData[fieldId]
+    local field = self:getOrCreateField(fieldId, true)
     if not field then return end
+
+    -- Confirm field area on first application (mirrors onHerbicideAppliedDirect / applyFertilizer)
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
+        end
+    end
 
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
@@ -4461,8 +4480,26 @@ end
 
 function SoilFertilitySystem:onFungicideAppliedDirect(fieldId, effectiveness, liters)
     if not self.settings.diseasePressure then return end
-    local field = self.fieldData[fieldId]
+    local field = self:getOrCreateField(fieldId, true)
     if not field then return end
+
+    -- Confirm field area on first application (mirrors onInsecticideAppliedDirect / applyFertilizer)
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
+        end
+    end
 
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
