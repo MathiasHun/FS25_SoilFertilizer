@@ -1320,22 +1320,25 @@ end
 ---@param dt number Delta time in milliseconds
 function SoilFertilityManager:update(dt)
     -- Deferred fill type registration retry (dedicated server timing fix: #431)
-    -- On dedi servers, fill types may not be in g_fillTypeManager at loadMission00Finished.
-    -- Retry for up to 3 seconds (90 frames) until they appear.
-    if self.soilSystem and self.soilSystem.hookManager
-       and self.soilSystem.hookManager._sprayTypesComplete == false then
+    -- Also re-patches ALL vehicles every frame until all custom types are resolvable,
+    -- so modded maps that shift fill-type indices (e.g. Carpathian Countryside, #727)
+    -- are handled without depending on _sprayTypesComplete.
+    if self.soilSystem and self.soilSystem.hookManager then
         self._deferredRetryCount = (self._deferredRetryCount or 0) + 1
-        if self._deferredRetryCount <= 90 then
+        if self._deferredRetryCount <= 120 then
             local hm = self.soilSystem.hookManager
             hm:registerCustomSprayTypes()
+            hm:reapplyFillUnitPatch()
+            hm:reapplyEffectTypeRemap()
+            hm:patchExistingSilos()
             if hm._sprayTypesComplete then
-                hm:reapplyFillUnitPatch()
-                hm:reapplyEffectTypeRemap()
-                hm:patchExistingSilos()  -- #605: bulk bins loaded before fill types resolved
-                SoilLogger.info("[DeferredInit] Fill type registration succeeded on retry #%d", self._deferredRetryCount)
+                if self._deferredRetryCount > 1 then
+                    SoilLogger.info("[DeferredInit] Fill-type re-patch complete on retry #%d", self._deferredRetryCount)
+                end
+                self._deferredRetryCount = 121  -- stop retrying once complete
             end
-        elseif self._deferredRetryCount == 91 then
-            SoilLogger.warning("[DeferredInit] Fill types still unavailable after 90 retries - dedicated server may have incomplete fill type loading")
+        elseif self._deferredRetryCount == 122 then
+            SoilLogger.warning("[DeferredInit] Fill types still unavailable after 120 retries - dedicated server or modded map may have incomplete fill type loading")
             self.soilSystem.hookManager._sprayTypesComplete = true  -- stop retrying
         end
     end

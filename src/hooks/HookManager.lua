@@ -4934,7 +4934,10 @@ end
 -- a small delay, to re-resolve indices and re-patch vehicles once fill types are available.
 function HookManager:reapplyFillUnitPatch()
     local fm = self._fuFm or g_fillTypeManager
-    if not fm then return false end
+    if not fm then
+        SoilLogger.warning("[DeferredInit] reapplyFillUnitPatch skipped: g_fillTypeManager not available")
+        return false
+    end
 
     local fertIdx    = self._fuFertIndex    or fm:getFillTypeIndexByName("FERTILIZER")
     local liqFertIdx = self._fuLiqFertIndex or fm:getFillTypeIndexByName("LIQUIDFERTILIZER")
@@ -4943,10 +4946,11 @@ function HookManager:reapplyFillUnitPatch()
 
     local solidIdxs, liquidIdxs, manureIdxs, limeIdxs = {}, {}, {}, {}
     local found, missing = 0, 0
+    local missingNames = {}
     for _, name in ipairs(self._fuSolidNames or {}) do
         local idx = fm:getFillTypeIndexByName(name)
         if idx then table.insert(solidIdxs, idx); found = found + 1
-        else missing = missing + 1 end
+        else missing = missing + 1; table.insert(missingNames, name) end
     end
     for _, name in ipairs(self._fuLiquidNames or {}) do
         local idx = fm:getFillTypeIndexByName(name)
@@ -4961,15 +4965,23 @@ function HookManager:reapplyFillUnitPatch()
         if idx then table.insert(limeIdxs, idx) end
     end
 
-    if found == 0 then return false end  -- still not available
+    if found == 0 then
+        SoilLogger.warning("[DeferredInit] reapplyFillUnitPatch: custom fill types still unavailable (missing: %s)", table.concat(missingNames, ", "))
+        return false  -- still not available
+    end
 
     local vehicleSystem = g_currentMission and g_currentMission.vehicleSystem
-    if not vehicleSystem or not vehicleSystem.vehicles then return false end
+    if not vehicleSystem or not vehicleSystem.vehicles then
+        SoilLogger.warning("[DeferredInit] reapplyFillUnitPatch skipped: no vehicleSystem.vehicles")
+        return false
+    end
 
     local patched = 0
+    local skipped = 0
     for _, vehicle in pairs(vehicleSystem.vehicles) do
         local spec = vehicle.spec_fillUnit
         if spec and spec.fillUnits then
+            local vehiclePatched = false
             for _, fillUnit in pairs(spec.fillUnits) do
                 if fillUnit.supportedFillTypes then
                     local addSolid  = fertIdx    and fillUnit.supportedFillTypes[fertIdx]
@@ -4980,13 +4992,23 @@ function HookManager:reapplyFillUnitPatch()
                     if addLiquid then for _, idx in ipairs(liquidIdxs) do fillUnit.supportedFillTypes[idx] = true end end
                     if addManure then for _, idx in ipairs(manureIdxs) do fillUnit.supportedFillTypes[idx] = true end end
                     if addLime   then for _, idx in ipairs(limeIdxs)   do fillUnit.supportedFillTypes[idx] = true end end
+                    if addSolid or addLiquid or addManure or addLime then
+                        vehiclePatched = true
+                    end
                 end
             end
+            if vehiclePatched then patched = patched + 1
+            else skipped = skipped + 1 end
+        else
+            skipped = skipped + 1
         end
-        patched = patched + 1
     end
 
-    SoilLogger.info("[DeferredInit] Deferred fill unit re-patch complete: %d vehicles re-patched (%d types found)", patched, found)
+    if patched > 0 then
+        SoilLogger.info("[DeferredInit] Deferred fill unit re-patch: %d vehicles patched, %d skipped (no eligible fill unit) (%d types found)", patched, skipped, found)
+    else
+        SoilLogger.warning("[DeferredInit] Deferred fill unit re-patch: 0 vehicles patched (%d skipped - none had eligible fill units) (%d types found)", skipped, found)
+    end
     return true
 end
 
