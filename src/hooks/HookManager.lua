@@ -3048,6 +3048,144 @@ function HookManager:installSprayerAreaHook()
                     applySingle(fieldId, effectiveLiters, rootX, rootZ)
                 end
 
+                -- ── Multi-tank application (secondary fill units) ─────────────────
+                -- Multi-fill-unit sprayers (e.g. 3-tank rigs carrying N + P + K) have
+                -- several spec.sprayTypes, each mapped to its own fillUnitIndex. Vanilla
+                -- drains only the active tank; to give farmers full credit for every tank
+                -- mounted, we enumerate all fill units, find every additional tank that
+                -- holds a fertilizer or crop-protection product, and run the apply pipeline
+                -- once per tank. Each secondary tank is drained by the same liters so the
+                -- mod does not hand out free fertilizer.
+                do
+                    local multiTankEnabled = hookMgrRef and hookMgrRef._settings and hookMgrRef._settings.multiTankApplication
+                    if multiTankEnabled ~= false then
+                        local spraySpec = self.spec_sprayer
+                        local fuSpec    = self.spec_fillUnit
+                        if spraySpec and fuSpec and fuSpec.fillUnits then
+                            local activeFui = spraySpec.workAreaParameters.sprayFillUnitIndex
+                            local profileSet = {}
+                            for _, fu in ipairs(fuSpec.fillUnits) do
+                                if fu.fillLevel > 0 and fu.fillType and fu.fillType > 0 then
+                                    local ft = g_fillTypeManager:getFillTypeByIndex(fu.fillType)
+                                    if ft and ft.name then
+                                        profileSet[ft.name] = fu
+                                    end
+                                end
+                            end
+
+                            for fuIdx, fu in ipairs(fuSpec.fillUnits) do
+                                if fuIdx ~= activeFui and fu.fillLevel > 0 and fu.fillType and fu.fillType > 0 then
+                                    local ft = g_fillTypeManager:getFillTypeByIndex(fu.fillType)
+                                    local ftName = ft and ft.name or nil
+                                    if ftName then
+                                        local entry = profileSet[ftName]
+                                        if entry and entry == fu then
+                                            local herbE = SoilConstants.WEED_PRESSURE and SoilConstants.WEED_PRESSURE.HERBICIDE_TYPES and SoilConstants.WEED_PRESSURE.HERBICIDE_TYPES[ftName]
+                                            local pestE = SoilConstants.PEST_PRESSURE and SoilConstants.PEST_PRESSURE.INSECTICIDE_TYPES and SoilConstants.PEST_PRESSURE.INSECTICIDE_TYPES[ftName]
+                                            local disE  = SoilConstants.DISEASE_PRESSURE and SoilConstants.DISEASE_PRESSURE.FUNGICIDE_TYPES and SoilConstants.DISEASE_PRESSURE.FUNGICIDE_TYPES[ftName]
+                                            local isFert2 = SoilConstants.FERTILIZER_PROFILES[ftName] ~= nil
+                                            local herbOnly2 = herbE and not isFert2
+                                            local pestOnly2 = pestE and not isFert2
+                                            local disOnly2  = disE  and not isFert2
+
+                                            if isFert2 or herbOnly2 or pestOnly2 or disOnly2 then
+                                                local drainLiters = math.min(fu.fillLevel, liters)
+                                                if drainLiters > 0 then
+                                                    fu.fillLevel = fu.fillLevel - drainLiters
+                                                    if fuSpec.fillUnitsDirtyFlag then
+                                                        pcall(function() self:raiseDirtyFlags(fuSpec.fillUnitsDirtyFlag) end)
+                                                    end
+                                                end
+
+                                                local secFillTypeIndex = fu.fillType
+                                                local function applyMulti(fId2, sLiters2, spx2, spz2)
+                                                    if not fId2 or fId2 <= 0 then return end
+                                                    if soilSys then
+                                                        soilSys._lastSprayX = spx2 or rootX
+                                                        soilSys._lastSprayZ = spz2 or rootZ
+                                                    end
+                                                    SoilLogger.debug("SprayerHook multi-tank: Field %d, %s, %.4fL",
+                                                        fId2, ftName, sLiters2)
+                                                    if isFert2 then
+                                                        soilSys:onFertilizerApplied(fId2, secFillTypeIndex, sLiters2)
+                                                    end
+                                                    if herbOnly2 and soilSys.onHerbicideAppliedDirect then
+                                                        soilSys:onHerbicideAppliedDirect(fId2, herbE, sLiters2)
+                                                    end
+                                                    if pestOnly2 and soilSys.onInsecticideAppliedDirect then
+                                                        soilSys:onInsecticideAppliedDirect(fId2, pestE, sLiters2)
+                                                    end
+                                                    if disOnly2 and soilSys.onFungicideAppliedDirect then
+                                                        soilSys:onFungicideAppliedDirect(fId2, disE, sLiters2)
+                                                    end
+                                                    if rateMultiplier > SoilConstants.SPRAYER_RATE.BURN_RISK_THRESHOLD then
+                                                        soilSys:applyBurnEffect(fId2, rateMultiplier)
+                                                    end
+                                                end
+
+                                                if vww and vww.sections and #vww.sections > 0 and scratchN > 0 then
+                                                    local vrWS = vrWeightSum or scratchN
+                                                    for i = 1, scratchN do
+                                                        local s2 = scratch[i]
+                                                        local sx2, sz2 = rootX, rootZ
+                                                        if not s2.isCenter and s2.maxWidthNode ~= nil then
+                                                            local wx2, _, wz2 = getWorldTranslation(s2.maxWidthNode)
+                                                            if wx2 then
+                                                                sx2 = (rootX + wx2) * 0.5
+                                                                sz2 = (rootZ + wz2) * 0.5
+                                                            end
+                                                        end
+                                                        local sFieldId = hookMgrRef:getFieldIdAtWorldPosition(sx2, sz2)
+                                                        if (not sFieldId or sFieldId <= 0) and
+                                                           not s2.isCenter and s2.maxWidthNode ~= nil then
+                                                            local wx3, _, wz3 = getWorldTranslation(s2.maxWidthNode)
+                                                            if wx3 then
+                                                                sFieldId = hookMgrRef:getFieldIdAtWorldPosition(wx3, wz3)
+                                                            end
+                                                        end
+                                                        if not sFieldId or sFieldId <= 0 then sFieldId = fieldId end
+                                                        local vrW2 = (vrSectionRates and vrSectionRates[s2]) or 1.0
+                                                        applyMulti(sFieldId, effectiveLiters * (vrW2 / vrWS), sx2, sz2)
+                                                    end
+                                                else
+                                                    applyMulti(fieldId, effectiveLiters, rootX, rootZ)
+                                                end
+
+                                                if soilSys and fieldId and fieldId > 0 then
+                                                    local boomPts = hookMgrRef:getBoomCellPositions(self, rootX, rootZ)
+                                                    if boomPts then
+                                                        if vww and vww.sections and #vww.sections > 0 then
+                                                            soilSys:markBoomCells(fieldId, boomPts)
+                                                        else
+                                                            soilSys:markBoomCells(fieldId, boomPts, true)
+                                                        end
+                                                    end
+                                                    if drainLiters > 0 and isFert2 then
+                                                        soilSys:trackSprayerCoverage(fieldId, drainLiters, ftName, true)
+                                                    end
+                                                end
+
+                                                do
+                                                    local wap2 = spec.workAreaParameters
+                                                    if wap2 and wap2.sprayVehicle == nil then
+                                                        if drainLiters > 0 then
+                                                            fu.fillLevel = fu.fillLevel + drainLiters
+                                                            if fuSpec.fillUnitsDirtyFlag then
+                                                                pcall(function() self:raiseDirtyFlags(fuSpec.fillUnitsDirtyFlag) end)
+                                                            end
+                                                        end
+                                                        SoilLogger.debug("BUY SKIP multi-tank refill: external fill path active veh=%d", self.id or 0)
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
                 -- Sweep all cells under the full boom width for display (#362).
                 -- Nutrients are already attributed to the field by applySingle/section loop;
                 -- markBoomCells only stamps display entries for unvisited lateral cells.

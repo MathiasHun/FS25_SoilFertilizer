@@ -272,6 +272,12 @@ SettingsSchema.definitions = {
         uiId = "sf_overlap_prev",
     },
     {
+        id = "multiTankApplication",
+        type = "boolean",
+        default = true,
+        uiId = "sf_multi_tank",
+    },
+    {
         id = "independentPanels",
         type = "boolean",
         default = false,
