@@ -502,6 +502,15 @@ local function hookSaveLoadEvents()
                     if g_SoilFertilityManager.settings then
                         g_SoilFertilityManager.settings:save()
                     end
+                    -- Persist per-crop N/P/K tuning here too (#720), same reason as settings
+                    -- above. soilCropTuning.xml was only ever written on-change to the live
+                    -- savegame dir, so the tempsavegame copy step clobbered it and every crop
+                    -- edit (editor or hand-edited XML) reverted to defaults after save+reload -
+                    -- the "changing crop values has no effect" report. Writing it here rides the
+                    -- edits into tempsavegame -> real dir like soilData.xml and the settings.
+                    if g_SoilFertilityManager.cropTuning then
+                        g_SoilFertilityManager.cropTuning:save()
+                    end
                     if g_SoilFertilityManager.soilHUD then
                         g_SoilFertilityManager.soilHUD:saveLayout()
                     end
