@@ -795,7 +795,7 @@
     <e k="sf_guide_p1_34" v="智能传感器  无改良需求区域自动关停对应喷杆" eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="识别喷施系统  实时显示每块地块胁迫等级" eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="变量喷施系统  根据养分缺口自动调节喷杆出药量" eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="快捷键设置" eh="07a9ae0d" />

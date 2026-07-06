@@ -137,10 +137,6 @@
         ══════════════════════════════════════════════════════════════════════
     -->
     <storeItems>
-        <!-- SF Mod Sprayer Vehicles -->
-        <storeItem xmlFilename="vehicles/johnDeere/r700i/r700i.xml"/>
-        <storeItem xmlFilename="vehicles/johnDeere/r975i/r975i.xml"/>
-
         <!-- IBC Liquid Tanks (multi-purchase) -->
         <storeItem xmlFilename="objects/liquidTank/uan32/multiPurchaseLiquidTank_uan32.xml"/>
         <storeItem xmlFilename="objects/liquidTank/uan28/multiPurchaseLiquidTank_uan28.xml"/>

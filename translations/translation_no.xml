@@ -804,7 +804,7 @@
     <e k="sf_guide_p1_34" v="[EN] Smart Sensor Blocks sections with no active need." eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="[EN] See &amp; Spray  Live per-cell pressure in the vehicle." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="[EN] Variable Rate Auto-adjusts boom rate from deficits." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="[EN] KEYBINDINGS" eh="07a9ae0d" />

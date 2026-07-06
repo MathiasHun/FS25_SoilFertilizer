@@ -200,10 +200,10 @@ Three in-vehicle overlay panels that appear when you enter a supported sprayer. 
 | System | What it does | How to enable |
 |---|---|---|
 | **Smart Sensor** | Monitors pest, disease, and nutrient need per section. Blocks spraying on sections with no active need detected. | Settings → Admin → Smart Systems. Works with any VWW sprayer. |
-| **See & Spray** | Shows live per-cell pressure for pest, disease, and weed at the sprayer's current position. Colour-coded per section. | Purchase a **JD R700i** or **JD R975i** with the *See & Spray* shop configuration selected. |
+| **See & Spray** | Shows live per-cell pressure for pest, disease, and weed at the sprayer's current position. Colour-coded per section. | Buy any sprayer with the *See & Spray* shop configuration selected. |
 | **Variable Rate** | Adjusts boom output rate per section based on soil deficits for the loaded product. Green bar = low rate; red bar = high rate. | Default key **Alt+7** (rebind `SF_VARIABLE_RATE` in **Controls → Mods**). Enable in Admin → Smart Systems. |
 
-Smart Sensor and Variable Rate work with any VWW-capable sprayer. **See & Spray requires the JD R700i (28 m) or JD R975i (36 m)** with the See & Spray option selected at purchase - base game sprayers are not tested with this feature.
+Smart Sensor and Variable Rate work with any VWW-capable sprayer. **See & Spray is available on any sprayer** with the See & Spray option selected at purchase.
 
 **Free Panel Layout** - Enable in Settings → Display → Position, then use the Shift+H edit mode to drag each panel independently. Press **[−]** in any panel's title bar to collapse it to the title bar only. Positions and collapse states are saved to `hud.xml`.
 

@@ -30,8 +30,8 @@ function SFNozzleEffects.init(modDir)
     local path = modDir .. "shared/sprayerNozzleEffect.i3d"
     g_i3DManager:loadI3DFileAsync(path, true, true, SFNozzleEffects._onI3DLoaded, nil, {})
 
-    -- Install the global injector so See & Spray is buyable on EVERY sprayer, not just
-    -- the mod's own r700i/r975i. Same pattern as Variable Tire Pressure: hook
+    -- Install the global injector so See & Spray is buyable on EVERY sprayer.
+    -- Same pattern as Variable Tire Pressure: hook
     -- TypeManager.validateTypes and add this spec to every vehicle type that already
     -- has the base "sprayer" spec. The spec itself is unchanged - it already supports
     -- base sprayers (see the Condor path in onUpdate) and no-ops when See & Spray is
