@@ -363,7 +363,14 @@ function SoilHUD:calculateHeight()
             if mgr.settings.weedPressure    and ((info.weedPressure    or 0) > 0 or info.herbicideActive)  then h = h + SoilHUD.LINE_H end
             if mgr.settings.pestPressure    and ((info.pestPressure    or 0) > 0 or info.insecticideActive) then h = h + SoilHUD.LINE_H end
             if mgr.settings.diseasePressure and ((info.diseasePressure or 0) > 0 or info.fungicideActive)   then h = h + SoilHUD.LINE_H end
-            if self._cachedSprayer and (info.sessionCoverageFraction or info.coverageFraction or 0) > 0 then h = h + SoilHUD.LINE_H end
+            if self._cachedSprayer then
+                -- Coverage can be two rows: daily coverage + per-pass (PASS). Reserve one
+                -- LINE_H per row that will actually draw, or the second row overlaps the row below.
+                local covLines = 0
+                if (info.coverageFraction or 0) > 0 then covLines = covLines + 1 end
+                if (info.sessionCoverageFraction or 0) > 0 then covLines = covLines + 1 end
+                h = h + SoilHUD.LINE_H * covLines
+            end
             if mgr.settings.compactionEnabled and (info.compaction or 0) > 0 then h = h + SoilHUD.LINE_H end
         end
         if (info.amendBurnPenalty or 0) > 0 then h = h + SoilHUD.LINE_H end
@@ -677,9 +684,9 @@ function SoilHUD:update(dt)
                     table.insert(parts, string.format(g_i18n:getText("sf_hud_pass_noproduct"), sessPct))
                 end
             end
-            self._fmt_covText = table.concat(parts, "\n")
+            self._fmt_covLines = parts
         else
-            self._fmt_covText = nil
+            self._fmt_covLines = nil
         end
         -- Compaction text
         local comp = info.compaction or 0
@@ -712,7 +719,7 @@ function SoilHUD:update(dt)
             self._fmt_yieldText = nil
         end
     else
-        self._fmt_covText   = nil
+        self._fmt_covLines  = nil
         self._fmt_compText  = nil
         self._fmt_burnText  = nil
         self._fmt_burnRiskText = nil
@@ -1009,7 +1016,7 @@ function SoilHUD:refreshFieldData()
         self._fmt_N         = nil
         self._fmt_P         = nil
         self._fmt_K         = nil
-        self._fmt_covText   = nil
+        self._fmt_covLines  = nil
         self._fmt_compText  = nil
         self._fmt_yieldText = nil
     end
@@ -1472,9 +1479,11 @@ function SoilHUD:drawPanel()
                     info.fungicideActive, px, cy, pw, s, fontMult)
             end
 
-            -- Coverage row: only show when player is actively in a fertilizer applicator
-            local covText = self._fmt_covText
-            if self._cachedSprayer and covText then
+            -- Coverage rows: only show when player is actively in a fertilizer applicator.
+            -- May be two lines (daily coverage + per-pass PASS); each gets its own LINE_H
+            -- slot so the second line never overlaps the compaction/yield row below.
+            local covLines = self._fmt_covLines
+            if self._cachedSprayer and covLines then
                 local cov = info.sessionCoverageFraction or info.coverageFraction or 0
                 local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
                 local covPoor, _, covGood = self:palette()
@@ -1483,8 +1492,10 @@ function SoilHUD:drawPanel()
                 local pad = SoilHUD.PAD * s
                 setTextAlignment(RenderText.ALIGN_LEFT)
                 setTextColor(cr, cg, cb, 1.0)
-                cy = cy - SoilHUD.LINE_H * s
-                renderText(px + pad, cy + (SoilHUD.LINE_H - 0.010) * 0.5 * s, 0.010 * fontMult * s, covText)
+                for _, line in ipairs(covLines) do
+                    cy = cy - SoilHUD.LINE_H * s
+                    renderText(px + pad, cy + (SoilHUD.LINE_H - 0.010) * 0.5 * s, 0.010 * fontMult * s, line)
+                end
             end
 
             -- Compaction row
