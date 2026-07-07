@@ -1848,23 +1848,41 @@ end
 
 -- ── Sprayer fill-type helpers ─────────────────────────────
 --- Returns the FillType object currently loaded in the sprayer, or nil.
+-- Handles vehicles with spec_sprayer (standard sprayers), as well as
+-- slurry tankers, manure spreaders, and lime spreaders (e.g. Vredo DLC, #728).
 function SoilHUD:getSprayerFillType(sprayer)
     if not sprayer then return nil end
     local fillTypeIndex
 
-    -- Try workAreaParameters first (populated while actively spraying)
+    -- Priority 1: spec_sprayer workAreaParameters (populated while actively spraying)
     local spec = sprayer.spec_sprayer
     if spec and spec.workAreaParameters then
         local ft = spec.workAreaParameters.sprayFillType
         if ft and ft > 0 then fillTypeIndex = ft end
     end
 
-    -- Issue #708: prefer the physical tank contents over wap.sprayFillType, which AI/CP
-    -- can leave pointing at the wrong product after a headland restart. Keeps the wap
-    -- value only when the tank is empty/UNKNOWN (external-fill BUY mode).
+    -- Priority 2: Issue #708 - prefer the physical tank contents over wap.sprayFillType,
+    -- which AI/CP can leave pointing at the wrong product after a headland restart.
     fillTypeIndex = SoilUtils.resolveSprayerFillTypeIndex(sprayer, fillTypeIndex)
 
-    -- Fall back to fill unit query (works when parked)
+    -- Priority 3: check slurry/manure/lime tanker specifications directly.
+    -- The Vredo DLC VT7138 and similar vehicles have spec_slurryTanker or
+    -- spec_manureSpreader but the implement sub-entity may not have spec_sprayer
+    -- at all, so the standard sprayer-based queries above return nil. (#728)
+    if not fillTypeIndex then
+        for _, specName in ipairs({"spec_slurryTanker", "spec_manureSpreader", "spec_limeSpreader", "spec_manureBarrel"}) do
+            local tankSpec = sprayer[specName]
+            if tankSpec and tankSpec.fillUnitIndex then
+                local ok, ft = pcall(function() return sprayer:getFillUnitFillType(tankSpec.fillUnitIndex) end)
+                if ok and ft and ft > 0 and ft ~= FillType.UNKNOWN then
+                    fillTypeIndex = ft
+                    break
+                end
+            end
+        end
+    end
+
+    -- Priority 4: fall back to generic fill unit query (works when parked)
     if not fillTypeIndex then
         local ok, units = pcall(function() return sprayer:getFillUnits() end)
         if ok and units then
@@ -2246,8 +2264,14 @@ function SoilHUD:getCurrentSprayer()
     local result = nil
     if SoilFertilityManager and SoilFertilityManager.isFertilizerApplicator then
         if SoilFertilityManager.isFertilizerApplicator(vehicle) then
-            -- Self-propelled: the driven vehicle is the applicator
-            result = vehicle
+            -- Self-propelled: the driven vehicle is the applicator.
+            -- ALSO scan for an attached implement that carries the actual product
+            -- (e.g. the Vredo DLC VT7138 where the chassis has spec_sprayer but
+            --  the slurry tank + boom is an implement sub-entity). Prefer the
+            --  implement when one exists so fill-type resolution reads the correct
+            --  physical tank (LIQUIDMANURE, not LIQUIDFERTILIZER, #728).
+            local implement = findApplicatorImplement(vehicle)
+            result = implement or vehicle
         else
             -- Pulled implement: scan the attacher joint tree
             result = findApplicatorImplement(vehicle)

@@ -898,33 +898,49 @@ end
 -- tractor towing a spreader), scans the attacher-joint implement tree.
 -- Mirrors the same logic in SoilHUD:getCurrentSprayer so both the HUD panel
 -- and the key callbacks always agree on which vehicle the rate belongs to.
+-- Shared helper: recursively scan the attacher-joint tree for a fertilizer applicator implement.
+-- Used by both getApplicatorVehicle and the else-branch below.
+local function scanImpls(root)
+    if not root then return nil end
+    local ok, spec = pcall(function() return root.spec_attacherJoints end)
+    if not ok or not spec then return nil end
+    local ok2, impls = pcall(function() return spec.attachedImplements end)
+    if not ok2 or not impls then return nil end
+    for _, impl in pairs(impls) do
+        local obj = impl.object
+        if obj then
+            if SoilFertilityManager.isFertilizerApplicator(obj) then
+                return obj
+            end
+            local found = scanImpls(obj)
+            if found then return found end
+        end
+    end
+    return nil
+end
+
+-- Returns the fertilizer applicator relevant for rate adjustment.
+-- Checks the directly driven vehicle first; if that is not an applicator (e.g. a
+-- tractor towing a spreader), scans the attacher-joint implement tree.
+-- Mirrors the same logic in SoilHUD:getCurrentSprayer so both the HUD panel
+-- and the key callbacks always agree on which vehicle the rate belongs to.
+-- Uses scanImpls as a shared recursive helper (hoisted above).
 local function getApplicatorVehicle()
     local v = getPlayerVehicle()
     if not v then return nil end
 
     -- Direct (self-propelled): liquid sprayer, air seeder, etc.
     if SoilFertilityManager.isFertilizerApplicator(v) then
-        return v
+        -- ALSO scan for an attached implement that carries the actual product
+        -- (e.g. the Vredo DLC VT7138 where the chassis has spec_sprayer but
+        --  the slurry tank + boom is an implement sub-entity). Prefer the
+        --  implement when one exists so fill-type resolution reads the correct
+        --  physical tank (LIQUIDMANURE, not LIQUIDFERTILIZER, #728).
+        local implement = scanImpls(v)
+        return implement or v
     end
 
     -- Pulled implement: walk the attacher-joint tree
-    local function scanImpls(root)
-        local ok, spec = pcall(function() return root.spec_attacherJoints end)
-        if not ok or not spec then return nil end
-        local ok2, impls = pcall(function() return spec.attachedImplements end)
-        if not ok2 or not impls then return nil end
-        for _, impl in pairs(impls) do
-            local obj = impl.object
-            if obj then
-                if SoilFertilityManager.isFertilizerApplicator(obj) then
-                    return obj
-                end
-                local found = scanImpls(obj)
-                if found then return found end
-            end
-        end
-        return nil
-    end
     return scanImpls(v)
 end
 
