@@ -558,7 +558,7 @@ function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRat
             local last = self._harvestBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._harvestBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -625,7 +625,7 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -671,7 +671,7 @@ function SoilFertilitySystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
             self._fertBroadcastTime[bKey] = now
             local field = self.fieldData[fieldId]
             if field and SoilFieldUpdateEvent then
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -828,7 +828,7 @@ function SoilFertilitySystem:onSowing(fieldId, area, seedsFruitType)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1079,7 +1079,7 @@ function SoilFertilitySystem:onPlowing(fieldId, area, isAlsoSprayer, cropBiomass
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1218,7 +1218,7 @@ function SoilFertilitySystem:onCultivation(fieldId, area, isAlsoSprayer, cropBio
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1268,7 +1268,7 @@ function SoilFertilitySystem:onMulching(fieldId, area, cropBiomass)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1383,7 +1383,7 @@ function SoilFertilitySystem:onStripTill(fieldId, area)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1437,7 +1437,7 @@ function SoilFertilitySystem:onHerbicideApplied(fieldId, effectiveness)
     -- Broadcast in multiplayer
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1626,7 +1626,7 @@ function SoilFertilitySystem:onInsecticideApplied(fieldId, effectiveness)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1672,7 +1672,7 @@ function SoilFertilitySystem:onFungicideApplied(fieldId, effectiveness)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1923,7 +1923,7 @@ function SoilFertilitySystem:applyNamedFungicide(fieldId, chemId, opts)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 
@@ -1969,7 +1969,7 @@ function SoilFertilitySystem:debugSetDisease(fieldId, pressure, diseaseId)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 
@@ -3405,7 +3405,7 @@ function SoilFertilitySystem:_processOneDailyField(fieldId, field)
 
     -- ── Broadcast to MP clients ──────────────────────────────────────────────
     if g_server and SoilFieldUpdateEvent then
-        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
     end
 end
 
@@ -4422,7 +4422,7 @@ function SoilFertilitySystem:onHerbicideAppliedDirect(fieldId, effectiveness, li
         if g_server and g_currentMission and g_currentMission.missionDynamicInfo
             and g_currentMission.missionDynamicInfo.isMultiplayer then
             if SoilFieldUpdateEvent then
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -4611,7 +4611,7 @@ function SoilFertilitySystem:applyBurnEffect(fieldId, rateMultiplier)
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent and (not field._lastBurnBroadcast or (now - field._lastBurnBroadcast) >= gapMs) then
             field._lastBurnBroadcast = now
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -5614,7 +5614,7 @@ function SoilFertilitySystem:applyRetroactiveDrain(fieldId, dN, dP, dK)
     -- Mirror the harvest/fertilize sync path so clients see the reconciled values.
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo
        and g_currentMission.missionDynamicInfo.isMultiplayer and SoilFieldUpdateEvent then
-        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
     end
 
     SoilLogger.debug("FieldSentry retro drain: field=%d  -N %.1f -P %.1f -K %.1f", fieldId, dN or 0, dP or 0, dK or 0)

@@ -93,6 +93,7 @@ source(modDirectory .. "src/integrations/PrecisionFarmingBridge.lua")
 source(modDirectory .. "src/integrations/SoilSettingsHubBridge.lua")
 source(modDirectory .. "src/integrations/SoilStateLedgerBridge.lua")
 source(modDirectory .. "src/integrations/SoilMasterHUDBridge.lua")
+source(modDirectory .. "src/integrations/SoilNetworkSyncBridge.lua")
 
 -- Register our custom density map height types with the DMHM mod file list.
 -- DensityMapHeightManager:loadMapData iterates modDensityHeightMapTypeFilenames and
@@ -182,6 +183,14 @@ local function loadedMission(mission, node)
     -- No-ops when MasterHUD is absent.
     if SoilMasterHUDBridge then
         SoilMasterHUDBridge.register(sfm)
+    end
+
+    -- FS25_NetworkSync: when present, ongoing per-field soil deltas fold into its
+    -- 1Hz whole-field-map batch (one registered module) instead of per-field
+    -- SoilFieldUpdateEvent broadcasts. SF's own event classes and chunked join
+    -- sync stay live as the fallback. No-ops when NetworkSync is absent.
+    if SoilNetworkSyncBridge then
+        SoilNetworkSyncBridge.register(sfm)
     end
 
     -- TIP ON GROUND FIX: directly inject our solid fill types into the

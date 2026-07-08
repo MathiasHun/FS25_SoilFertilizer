@@ -882,6 +882,24 @@ function SoilFieldBatchSyncEvent:getBatchCount()
 end
 
 -- ========================================
+-- FIELD UPDATE DISPATCH (choke point)
+-- ========================================
+-- Single entry point for every ongoing per-field soil delta broadcast. When
+-- FS25_NetworkSync is installed the delta is folded into its 1Hz whole-field-map
+-- batch (one registered module) via markDirty; when it is absent this is the
+-- original direct SoilFieldUpdateEvent broadcast. Server-guarded either way, so
+-- the sim sites can call it unconditionally inside their multiplayer guards.
+function SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
+    if SoilNetworkSyncBridge ~= nil and SoilNetworkSyncBridge.active then
+        SoilNetworkSyncBridge.markFieldDirty()
+        return
+    end
+    if g_server ~= nil and SoilFieldUpdateEvent ~= nil and field ~= nil then
+        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+    end
+end
+
+-- ========================================
 -- FIELD UPDATE EVENT (Server -> Clients)
 -- ========================================
 -- Sent when soil data changes (harvest, fertilizer) for a single field
