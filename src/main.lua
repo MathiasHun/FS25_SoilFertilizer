@@ -91,6 +91,7 @@ source(modDirectory .. "src/network/NetworkEvents.lua")
 source(modDirectory .. "src/integrations/SectionControlIntegration.lua")
 source(modDirectory .. "src/integrations/PrecisionFarmingBridge.lua")
 source(modDirectory .. "src/integrations/SoilSettingsHubBridge.lua")
+source(modDirectory .. "src/integrations/SoilStateLedgerBridge.lua")
 
 -- Register our custom density map height types with the DMHM mod file list.
 -- DensityMapHeightManager:loadMapData iterates modDensityHeightMapTypeFilenames and
@@ -165,6 +166,14 @@ local function loadedMission(mission, node)
     -- tablet can list them. No-ops when SettingsHub is not installed.
     if SoilSettingsHubBridge then
         SoilSettingsHubBridge.register(sfm)
+    end
+
+    -- FS25_StateLedger: when present it becomes the load source of truth for soil
+    -- data (soilData.xml stays a safety copy). No-ops when StateLedger is absent.
+    -- Registered here so the ledger's deserialize has fired before onMissionStarted
+    -- runs loadSoilData.
+    if SoilStateLedgerBridge then
+        SoilStateLedgerBridge.register(sfm)
     end
 
     -- TIP ON GROUND FIX: directly inject our solid fill types into the

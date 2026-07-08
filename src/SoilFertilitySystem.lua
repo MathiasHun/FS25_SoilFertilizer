@@ -5079,72 +5079,10 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             g_SoilFertilityManager.organic:loadFieldState(xmlFile, fieldKey, self.fieldData[fieldId])
         end
 
-        -- Restore only the DAILY coverage so the daily pass% and protection thresholds
-        -- carry across reloads (#608). Do NOT restore the SESSION coverage: it is
-        -- session-local and a reload starts a fresh spray session.
-        --
-        -- Seeding sessionCoverageFraction from the save was the #640 bug: the overlap
-        -- prevention gate treats sessionCoverageFraction >= 0.99 as "field fully covered",
-        -- suppresses every boom section and forces processSprayerArea to return 0. So any
-        -- field that had been fertilized before saving loaded back as already-covered and
-        -- silently refused ALL further fertilizer on every crop (the "fields don't update
-        -- after spreading" / "N not going up" reports), until a harvest/plow/cultivate/
-        -- day-change happened to reset the session fraction. sessionCoverage* stay 0/empty.
-        do
-            local f = self.fieldData[fieldId]
-            f.coveredAreaHa = f.coverageFraction * f.fieldArea
-        end
-
         -- Load daily application throttles
         self.herbicideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#herbicideAppliedDay") or 0
         self.insecticideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#insecticideAppliedDay") or 0
         self.fungicideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#fungicideAppliedDay") or 0
-
-        -- Refresh fieldArea - prefer the actual crop polygon area (field.areaHa) so that
-        -- Pass% uses the correct denominator. Farmland.areaInHa includes roads/hedges
-        -- (~2× crop area), causing Pass% to cap at ~50% on a full-field spray (#475/#476).
-        -- Use farmland area as fallback when crop polygon area is the unloaded default (1.0).
-        if g_farmlandManager then
-            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-            if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-                local bestArea = farmlandObj.areaInHa
-                if g_fieldManager and g_fieldManager.fields then
-                    for _, fld in ipairs(g_fieldManager.fields) do
-                        if fld and fld.farmland and fld.farmland.id == fieldId then
-                            local ca = fld.areaHa
-                            if ca and math.abs(ca - 1.0) > 0.05 and ca <= farmlandObj.areaInHa + 0.1 then
-                                bestArea = ca
-                                break
-                            end
-                        end
-                    end
-                end
-                self.fieldData[fieldId].fieldArea = bestArea
-            end
-        end
-
-        -- Clear empty strings
-        if self.fieldData[fieldId].lastCrop == "" then
-            self.fieldData[fieldId].lastCrop = nil
-        end
-        if self.fieldData[fieldId].lastCrop2 == "" then
-            self.fieldData[fieldId].lastCrop2 = nil
-        end
-        if self.fieldData[fieldId].lastCrop3 == "" then
-            self.fieldData[fieldId].lastCrop3 = nil
-        end
-        -- Empty sownCrop must be nil, not "", or getFieldInfo's `sownCrop or lastCrop`
-        -- fallback would resolve to "" and hide the real crop just after a reload.
-        if self.fieldData[fieldId].sownCrop == "" then
-            self.fieldData[fieldId].sownCrop = nil
-        end
-        -- Named disease: empty → nil, and rebuild the cached yield severity.
-        local fdd = self.fieldData[fieldId]
-        if fdd.activeDisease == "" then fdd.activeDisease = nil end
-        if fdd.lastFungicide == "" then fdd.lastFungicide = nil end
-        if fdd.activeDisease and SoilDiseaseSystem then
-            fdd.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(fdd.activeDisease)
-        end
 
         -- Load per-area zone cells
         local zi = 0
@@ -5166,31 +5104,11 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             zi = zi + 1
         end
 
-        -- Reconstruct the compaction running sum + field-average from the per-cell
-        -- zoneData just loaded. Gameplay (onCompaction / onSubsoilerPass) stores per-cell
-        -- compaction in zoneData[cellKey].compaction and derives the field.compaction
-        -- scalar from compactionSum / compactionTotalCells - it never populates the legacy
-        -- compactionCells table. So saving wrote an empty compactionCells block and the
-        -- scalar reset to 0 on every reload, even though the per-cell values round-tripped
-        -- in zoneData: that was the "compaction drops to 0% after reload" half of #656.
-        -- Rebuilding the sum from zoneData keeps it consistent with the per-cell deltas
-        -- that onCompaction / onSubsoilerPass apply afterwards.
-        local zone = SoilConstants.ZONE
-        local f = self.fieldData[fieldId]
-        local compSum = 0
-        if f.zoneData then
-            for _, cell in pairs(f.zoneData) do
-                compSum = compSum + (cell.compaction or 0)
-            end
-        end
-        if compSum > 0 then
-            local areaInHa   = f.fieldArea or 1.0
-            local totalCells = math.max(1, math.ceil(areaInHa / zone.CELL_AREA_HA))
-            local maxC = (SoilConstants.COMPACTION and SoilConstants.COMPACTION.MAX_COMPACTION) or 100.0
-            f.compactionSum        = compSum
-            f.compactionTotalCells = totalCells
-            f.compaction           = math.min(maxC, compSum / totalCells)
-        end
+        -- Shared post-read finalization: fieldArea refresh (#475/#476), daily
+        -- coverage restore (#640/#608), empty->nil, disease severity, and the
+        -- compaction-sum rebuild from per-cell zoneData (#656). Same helper the
+        -- StateLedger table-load path uses, so the two loaders can never drift.
+        self:_finalizeLoadedField(fieldId, self.fieldData[fieldId])
 
         index = index + 1
     end
@@ -5208,6 +5126,258 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
        and g_currentMission.missionDynamicInfo.isMultiplayer then
         self:broadcastAllFieldData()
     end
+end
+
+-- =========================================================
+-- StateLedger table round-trip (delegate-when-present, #bedrock)
+-- =========================================================
+-- SoilFertilizer ships standalone, so soilData.xml stays the fallback/safety
+-- copy. When FS25_StateLedger is installed it becomes the load source of truth
+-- via these plain-table serializers. Both load paths (soilData.xml and the
+-- ledger table) funnel through _finalizeLoadedField so their post-read fixups
+-- can never diverge.
+
+-- Shared post-read finalization for one field, format-agnostic. Runs after the
+-- raw scalars + zoneData are in place. Preserves the exact ordering the XML
+-- loader always used: coverage restore uses the SAVED fieldArea, THEN fieldArea
+-- is refreshed from the farmland, THEN compaction is rebuilt from that area.
+function SoilFertilitySystem:_finalizeLoadedField(fieldId, f)
+    if type(f) ~= "table" then return end
+
+    -- Restore DAILY coverage area from the saved fraction (saved fieldArea,
+    -- before the farmland refresh below). Session coverage stays 0 on purpose
+    -- (#640/#608).
+    f.coveredAreaHa = (f.coverageFraction or 0) * (f.fieldArea or 1.0)
+
+    -- Refresh fieldArea - prefer the crop polygon area so Pass% uses the right
+    -- denominator; fall back to farmland area (#475/#476).
+    if g_farmlandManager then
+        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
+            local bestArea = farmlandObj.areaInHa
+            if g_fieldManager and g_fieldManager.fields then
+                for _, fld in ipairs(g_fieldManager.fields) do
+                    if fld and fld.farmland and fld.farmland.id == fieldId then
+                        local ca = fld.areaHa
+                        if ca and math.abs(ca - 1.0) > 0.05 and ca <= farmlandObj.areaInHa + 0.1 then
+                            bestArea = ca
+                            break
+                        end
+                    end
+                end
+            end
+            f.fieldArea = bestArea
+        end
+    end
+
+    -- Empty strings -> nil (a "" sownCrop would hide the real crop via the
+    -- `sownCrop or lastCrop` fallback right after a reload).
+    if f.lastCrop  == "" then f.lastCrop  = nil end
+    if f.lastCrop2 == "" then f.lastCrop2 = nil end
+    if f.lastCrop3 == "" then f.lastCrop3 = nil end
+    if f.sownCrop  == "" then f.sownCrop  = nil end
+
+    -- Named disease: empty -> nil, and rebuild the cached yield severity.
+    if f.activeDisease == "" then f.activeDisease = nil end
+    if f.lastFungicide == "" then f.lastFungicide = nil end
+    if f.activeDisease and SoilDiseaseSystem then
+        f.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(f.activeDisease)
+    end
+
+    -- Rebuild the compaction running sum + field-average from per-cell zoneData
+    -- (the #656 fix: onCompaction stores per-cell in zoneData, never the legacy
+    -- compactionCells table, so the scalar must be reconstructed here).
+    local zone = SoilConstants.ZONE
+    local compSum = 0
+    if f.zoneData then
+        for _, cell in pairs(f.zoneData) do
+            compSum = compSum + (cell.compaction or 0)
+        end
+    end
+    if compSum > 0 then
+        local areaInHa   = f.fieldArea or 1.0
+        local totalCells = math.max(1, math.ceil(areaInHa / zone.CELL_AREA_HA))
+        local maxC = (SoilConstants.COMPACTION and SoilConstants.COMPACTION.MAX_COMPACTION) or 100.0
+        f.compactionSum        = compSum
+        f.compactionTotalCells = totalCells
+        f.compaction           = math.min(maxC, compSum / totalCells)
+    end
+end
+
+-- Build a plain Lua table snapshot of all persisted soil state. Mirrors exactly
+-- the fields saveToXMLFile writes (same defaults, same "frozen-yield-only-when-
+-- live" and "organic-only-when-present" rules), so a ledger save equals an XML
+-- save. StateLedger's serializer round-trips arbitrary nested tables.
+function SoilFertilitySystem:getSoilStateTable()
+    local defaults = SoilConstants.FIELD_DEFAULTS
+    local out = { lastUpdateDay = self.lastUpdateDay or 0, fields = {} }
+    if type(self.fieldData) ~= "table" then return out end
+
+    for fieldId, field in pairs(self.fieldData) do
+        if type(field) == "table" then
+            local e = {
+                fieldArea             = field.fieldArea or 1.0,
+                nitrogen              = field.nitrogen or defaults.nitrogen,
+                phosphorus            = field.phosphorus or defaults.phosphorus,
+                potassium             = field.potassium or defaults.potassium,
+                organicMatter         = field.organicMatter or defaults.organicMatter,
+                pH                    = field.pH or defaults.pH,
+                lastCrop              = field.lastCrop or "",
+                lastCrop2             = field.lastCrop2 or "",
+                lastCrop3             = field.lastCrop3 or "",
+                sownCrop              = field.sownCrop or "",
+                rotationBonusDaysLeft = field.rotationBonusDaysLeft or 0,
+                lastHarvest           = field.lastHarvest or 0,
+                fertilizerApplied     = field.fertilizerApplied or 0,
+                weedPressure          = field.weedPressure or 0,
+                herbicideDaysLeft     = field.herbicideDaysLeft or 0,
+                pestPressure          = field.pestPressure or 0,
+                insecticideDaysLeft   = field.insecticideDaysLeft or 0,
+                diseasePressure       = field.diseasePressure or 0,
+                fungicideDaysLeft     = field.fungicideDaysLeft or 0,
+                activeDisease         = field.activeDisease or "",
+                lastFungicide         = field.lastFungicide or "",
+                dryDayCount           = field.dryDayCount or 0,
+                burnDaysLeft          = field.burnDaysLeft or 0,
+                lastAlertSeason       = field.lastAlertSeason or 0,
+                coverageFraction      = field.coverageFraction or 0,
+                compaction            = field.compaction or 0,
+                amendBurnPenalty      = field.amendBurnPenalty or 0,
+                herbicideAppliedDay   = self.herbicideAppliedDay[fieldId] or 0,
+                insecticideAppliedDay = self.insecticideAppliedDay[fieldId] or 0,
+                fungicideAppliedDay   = self.fungicideAppliedDay[fieldId] or 0,
+            }
+            -- Frozen yield only while a freeze is live (matches XML save).
+            if field.frozenYieldModifier and field.frozenYieldFruitType then
+                e.frozenYieldModifier  = field.frozenYieldModifier
+                e.frozenYieldFruitType = field.frozenYieldFruitType
+            end
+            -- Organic certification sub-table (only when present).
+            if field.organic then
+                e.organic = {
+                    state        = field.organic.state,
+                    startDay     = field.organic.startDay or 0,
+                    certifiedDay = field.organic.certifiedDay or 0,
+                    breaches     = field.organic.breaches or 0,
+                }
+            end
+            -- Per-area zone cells.
+            if field.zoneData then
+                local zt = {}
+                for cellKey, cell in pairs(field.zoneData) do
+                    zt[cellKey] = {
+                        N = cell.N or 0, P = cell.P or 0, K = cell.K or 0,
+                        pH = cell.pH or 6.0, OM = cell.OM or 0,
+                        weedPressure    = cell.weedPressure or 0,
+                        pestPressure    = cell.pestPressure or 0,
+                        diseasePressure = cell.diseasePressure or 0,
+                        compaction      = cell.compaction or 0,
+                    }
+                end
+                e.zoneData = zt
+            end
+            out.fields[fieldId] = e
+        end
+    end
+    return out
+end
+
+-- Apply a plain-table snapshot (from getSoilStateTable / StateLedger) back into
+-- fieldData. Mirrors loadFromXMLFile's raw read + clamps, then routes every
+-- field through the shared _finalizeLoadedField. Returns the field count.
+function SoilFertilitySystem:applySoilStateTable(data)
+    local defaults = SoilConstants.FIELD_DEFAULTS
+    self.fieldData = {}
+    local _curDay = (g_currentMission and g_currentMission.environment
+                     and g_currentMission.environment.currentDay) or 0
+
+    if type(data) ~= "table" then
+        self.lastUpdateDay = _curDay
+        return 0
+    end
+    self.lastUpdateDay = data.lastUpdateDay or _curDay
+
+    local count = 0
+    local fields = data.fields or {}
+    for fieldId, e in pairs(fields) do
+        if type(e) == "table" then
+            local f = {
+                fieldArea             = e.fieldArea or 1.0,
+                nitrogen              = math.max(0, math.min(100, e.nitrogen or defaults.nitrogen)),
+                phosphorus            = math.max(0, math.min(100, e.phosphorus or defaults.phosphorus)),
+                potassium             = math.max(0, math.min(100, e.potassium or defaults.potassium)),
+                organicMatter         = math.max(0, math.min(10, e.organicMatter or defaults.organicMatter)),
+                pH                    = math.max(5.0, math.min(8.5, e.pH or defaults.pH)),
+                lastCrop              = e.lastCrop,
+                lastCrop2             = e.lastCrop2,
+                lastCrop3             = e.lastCrop3,
+                sownCrop              = e.sownCrop,
+                rotationBonusDaysLeft = e.rotationBonusDaysLeft or 0,
+                lastHarvest           = e.lastHarvest or 0,
+                fertilizerApplied     = e.fertilizerApplied or 0,
+                weedPressure          = e.weedPressure or 0,
+                herbicideDaysLeft     = e.herbicideDaysLeft or 0,
+                pestPressure          = e.pestPressure or 0,
+                insecticideDaysLeft   = e.insecticideDaysLeft or 0,
+                diseasePressure       = e.diseasePressure or 0,
+                fungicideDaysLeft     = e.fungicideDaysLeft or 0,
+                activeDisease         = e.activeDisease,
+                activeDiseaseSeverity = 1.0,
+                lastFungicide         = e.lastFungicide,
+                dryDayCount           = e.dryDayCount or 0,
+                burnDaysLeft          = e.burnDaysLeft or 0,
+                amendBurnPenalty      = e.amendBurnPenalty,
+                frozenYieldModifier   = e.frozenYieldModifier,
+                frozenYieldFruitType  = e.frozenYieldFruitType,
+                coverageFraction      = e.coverageFraction or 0,
+                lastAlertSeason       = e.lastAlertSeason,
+                compaction            = 0,
+                compactionCells       = {},
+                compactionCellDays    = {},
+                compactionSum         = 0,
+                compactionTotalCells  = 0,
+                initialized           = true,
+                nutrientBuffer        = {},
+                zoneData              = {},
+                coveredAreaHa         = 0,
+                dailyCoverageCells    = {},
+                sessionCoverageHa     = 0,
+                sessionCoverageFraction = 0,
+                sessionCoverageCells  = {},
+                sessionLastProduct    = nil,
+            }
+            -- Organic certification (leaves the field conventional if absent).
+            if e.organic and e.organic.state and e.organic.state ~= "" then
+                f.organic = {
+                    state        = e.organic.state,
+                    startDay     = e.organic.startDay or 0,
+                    certifiedDay = e.organic.certifiedDay or 0,
+                    breaches     = e.organic.breaches or 0,
+                }
+            end
+            -- Daily application throttles.
+            self.herbicideAppliedDay[fieldId]   = e.herbicideAppliedDay or 0
+            self.insecticideAppliedDay[fieldId] = e.insecticideAppliedDay or 0
+            self.fungicideAppliedDay[fieldId]   = e.fungicideAppliedDay or 0
+            -- Per-area zone cells.
+            if e.zoneData then
+                for cellKey, cell in pairs(e.zoneData) do
+                    f.zoneData[cellKey] = {
+                        N = cell.N or 0, P = cell.P or 0, K = cell.K or 0,
+                        pH = cell.pH or 6.0, OM = cell.OM or 0,
+                        weedPressure    = cell.weedPressure or 0,
+                        pestPressure    = cell.pestPressure or 0,
+                        diseasePressure = cell.diseasePressure or 0,
+                        compaction      = cell.compaction or 0,
+                    }
+                end
+            end
+            self.fieldData[fieldId] = f
+            self:_finalizeLoadedField(fieldId, f)
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- Debug: List all fields

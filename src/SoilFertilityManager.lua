@@ -1258,6 +1258,21 @@ function SoilFertilityManager:loadSoilData()
         return
     end
 
+    -- StateLedger (bedrock): when installed and it delivered an actual soil block,
+    -- it is the load source of truth. On a new save, or the first load after
+    -- installing the ledger onto an existing save, it delivers nothing, so we fall
+    -- through and import the existing soilData.xml (which the ledger then carries
+    -- forward). soilData.xml is still written every save as a safety copy.
+    if SoilStateLedgerBridge and SoilStateLedgerBridge.hasLedgerState() then
+        SoilStateLedgerBridge.applyState(self)
+        local fieldCount = 0
+        if self.soilSystem.fieldData then
+            for _ in pairs(self.soilSystem.fieldData) do fieldCount = fieldCount + 1 end
+        end
+        SoilLogger.info("Soil data loaded from StateLedger (%d fields)", fieldCount)
+        return
+    end
+
     local savegamePath = g_currentMission.missionInfo.savegameDirectory
     if not savegamePath then
         SoilLogger.warning("loadSoilData: savegameDirectory not set yet (new career or early load) - starting with defaults")

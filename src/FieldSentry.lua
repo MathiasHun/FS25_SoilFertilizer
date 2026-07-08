@@ -751,3 +751,76 @@ function FieldSentry_API.loadFromXMLFile(xmlFile, key)
         FieldSentry_API.flushPendingRetro()
     end
 end
+
+-- =========================================================
+-- StateLedger table round-trip (delegate-when-present, #bedrock)
+-- =========================================================
+-- Plain-table equivalents of save/loadFromXMLFile for the StateLedger path.
+-- Same persisted subset (durable player intent + the FR3 retro token). No schema
+-- version tag: StateLedger's block is always current-schema, so the legacy
+-- (version < 2) migration path stays exclusive to the soilData.xml loader.
+
+--- Snapshot the durable FieldSentry state as an array of plain entries.
+function FieldSentry_API.getStateTable()
+    local out = {}
+    for id, f in pairs(FieldSentry_Core.FieldState) do
+        local hasPending = f.pendingRetro ~= nil
+        if f.manualBlacklist or f.meadowToggle or f.decoHint
+           or (f.lastContractSeq or 0) > 0 or hasPending then
+            local e = {
+                id              = id,
+                manual          = f.manualBlacklist and true or false,
+                meadow          = f.meadowToggle and true or false,
+                deco            = f.decoHint and true or false,
+                lastContractSeq = f.lastContractSeq or 0,
+            }
+            if hasPending then
+                local p = f.pendingRetro
+                e.retroSeq    = p.seq or 0
+                e.retroLiters = p.liters or 0
+                e.retroFruit  = p.fruitType or ""
+            end
+            out[#out + 1] = e
+        end
+    end
+    return out
+end
+
+--- Restore from a getStateTable() snapshot (replaces current state). Mirrors the
+--- current-schema branch of loadFromXMLFile, including the FR3 pending-retro flush.
+function FieldSentry_API.applyStateTable(entries)
+    FieldSentry_API.reset()
+    if type(entries) ~= "table" then return end
+
+    for _, e in ipairs(entries) do
+        local id = e.id
+        if id then
+            local manual   = e.manual == true
+            local meadow   = e.meadow == true
+            local deco     = e.deco == true
+            local lastSeq  = e.lastContractSeq or 0
+            local retroSeq = e.retroSeq
+            if manual or meadow or deco or lastSeq > 0 or retroSeq then
+                local f = getOrCreate(id)
+                f.manualBlacklist = manual
+                f.meadowToggle    = meadow
+                f.decoHint        = deco
+                f.lastContractSeq = lastSeq
+                if retroSeq then
+                    local fruit = e.retroFruit
+                    if fruit == "" then fruit = nil end
+                    f.pendingRetro = {
+                        seq       = retroSeq,
+                        liters    = e.retroLiters or 0,
+                        fruitType = fruit,
+                    }
+                end
+                evaluate(f)
+            end
+        end
+    end
+
+    if FieldSentry_API.flushPendingRetro then
+        FieldSentry_API.flushPendingRetro()
+    end
+end
