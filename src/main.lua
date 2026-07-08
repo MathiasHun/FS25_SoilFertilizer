@@ -92,6 +92,7 @@ source(modDirectory .. "src/integrations/SectionControlIntegration.lua")
 source(modDirectory .. "src/integrations/PrecisionFarmingBridge.lua")
 source(modDirectory .. "src/integrations/SoilSettingsHubBridge.lua")
 source(modDirectory .. "src/integrations/SoilStateLedgerBridge.lua")
+source(modDirectory .. "src/integrations/SoilMasterHUDBridge.lua")
 
 -- Register our custom density map height types with the DMHM mod file list.
 -- DensityMapHeightManager:loadMapData iterates modDensityHeightMapTypeFilenames and
@@ -174,6 +175,13 @@ local function loadedMission(mission, node)
     -- runs loadSoilData.
     if SoilStateLedgerBridge then
         SoilStateLedgerBridge.register(sfm)
+    end
+
+    -- FS25_MasterHUD: when present it drives our whole HUD draw stack through its
+    -- single suspend-aware draw loop (our own FSBaseMission.draw hook stands down).
+    -- No-ops when MasterHUD is absent.
+    if SoilMasterHUDBridge then
+        SoilMasterHUDBridge.register(sfm)
     end
 
     -- TIP ON GROUND FIX: directly inject our solid fill types into the
@@ -570,41 +578,16 @@ FSBaseMission.update = Utils.appendedFunction(FSBaseMission.update, function(mis
     end
 end)
 
--- Hook draw for HUD, settings panel, and minimap overlay
+-- Hook draw for HUD, settings panel, and minimap overlay.
+-- When FS25_MasterHUD is installed it owns our draw (its single suspend-aware loop
+-- calls SoilMasterHUDBridge.drawStack), so this hook stands down to avoid double
+-- drawing. When MasterHUD is absent this hook runs the exact same stack. The body
+-- lives in SoilMasterHUDBridge.drawStack so the two paths can never diverge.
 FSBaseMission.draw = Utils.appendedFunction(FSBaseMission.draw, function(mission)
     if not mission.isRunning then return end
-    if sfm and sfm.soilHUD then
-        sfm.soilHUD:draw()
-    end
-    if sfm and sfm.settingsPanel then
-        sfm.settingsPanel:draw()
-    end
-    if sfm and sfm.tuningPanel then
-        sfm.tuningPanel:draw()
-    end
-    if sfm and sfm.cropTuningPanel then
-        sfm.cropTuningPanel:draw()
-    end
-    if sfm and sfm.variableRatePanel then
-        sfm.variableRatePanel:draw()
-    end
-    if sfm and sfm.smartSensorPanel then
-        sfm.smartSensorPanel:draw()
-    end
-    if sfm and sfm.sprayerInfoPanel then
-        sfm.sprayerInfoPanel:draw()
-    end
-    if sfm and sfm.harvesterPanel then
-        sfm.harvesterPanel:draw()
-    end
-    -- Soil layer overlay on the HUD minimap (bottom-left corner).
-    -- Uses the ingameMap ref captured at map-load time (g_currentMission.ingameMap is nil in FS25).
-    if sfm and sfm.soilMapOverlay then
-        local ingameMap = sfm.soilMapOverlay.ingameMapRef
-            or (g_currentMission and g_currentMission.ingameMap)
-        if ingameMap then
-            sfm.soilMapOverlay:onDrawMinimap(ingameMap)
-        end
+    if SoilMasterHUDBridge and SoilMasterHUDBridge.active then return end
+    if SoilMasterHUDBridge then
+        SoilMasterHUDBridge.drawStack()
     end
 end)
 
