@@ -27,6 +27,38 @@ local COLOR_WHITE = {1.00, 1.00, 1.00, 1.0}
 local COLOR_GREEN = {0.35, 0.85, 0.40, 1.0}
 local COLOR_DIM   = {0.60, 0.60, 0.60, 1.0}
 
+-- Rotation Foresight candidate pools. v1 shows a small curated set that always
+-- exercises the three rotation outcomes so the tradeoff reads at a glance: the
+-- same crop again (Fatigue), a legume (Bonus), and a neutral cereal (OK). The
+-- REAL status for each row comes from soilSystem:projectRotation(), which runs
+-- the mod's own rotation logic, so the preview can never disagree with what the
+-- player actually gets. Names are lowercase; getFruitTypeByName upper-cases
+-- internally so they resolve on any map (falling back to a title-cased label).
+local RF_LEGUME_CANDIDATES  = { "soybean", "peas", "clover", "alfalfa" }
+local RF_NEUTRAL_CANDIDATES = { "wheat", "barley", "maize", "canola" }
+
+--- Curated 3-crop candidate set for the field's current crop.
+--- Returns { sameCrop, aLegume, aNeutralCereal } (entries may be nil when the
+--- pools cannot offer one distinct from the current crop).
+local function rfPickCandidates(currentCrop)
+    local cur = currentCrop and string.lower(currentCrop) or ""
+
+    -- A legume different from the current crop (demonstrates the Bonus outcome).
+    local legume
+    for _, c in ipairs(RF_LEGUME_CANDIDATES) do
+        if c ~= cur then legume = c break end
+    end
+
+    -- A neutral cereal different from both the current crop and the legume
+    -- (demonstrates a plain OK rotation).
+    local neutral
+    for _, c in ipairs(RF_NEUTRAL_CANDIDATES) do
+        if c ~= cur and c ~= legume then neutral = c break end
+    end
+
+    return { cur, legume, neutral }
+end
+
 local function getStatusColors()
     local cb = g_SoilFertilityManager and g_SoilFertilityManager.settings and g_SoilFertilityManager.settings.colorblindMode
     if cb then
@@ -149,6 +181,25 @@ function SoilFieldDetailDialog:onGuiSetupFinished()
     self.detailYieldEff         = self:getDescendantById("detailYieldEff")
     self.detailYieldEffStatus   = self:getDescendantById("detailYieldEffStatus")
     self.detailNoData           = self:getDescendantById("detailNoData")
+
+    -- Rotation Foresight rows (crop / status / effect, x3)
+    self.detailRfIntro  = self:getDescendantById("detailRfIntro")
+    self.detailRfHint   = self:getDescendantById("detailRfHint")
+    self.detailRfCrop   = {
+        self:getDescendantById("detailRfCrop1"),
+        self:getDescendantById("detailRfCrop2"),
+        self:getDescendantById("detailRfCrop3"),
+    }
+    self.detailRfStatus = {
+        self:getDescendantById("detailRfStatus1"),
+        self:getDescendantById("detailRfStatus2"),
+        self:getDescendantById("detailRfStatus3"),
+    }
+    self.detailRfEffect = {
+        self:getDescendantById("detailRfEffect1"),
+        self:getDescendantById("detailRfEffect2"),
+        self:getDescendantById("detailRfEffect3"),
+    }
 end
 
 function SoilFieldDetailDialog:onOpen()
@@ -344,6 +395,112 @@ function SoilFieldDetailDialog:_populateData()
             if self.detailYieldEffStatus then self.detailYieldEffStatus:setText("") end
         end
     end
+
+    -- Rotation Foresight: read-only preview of what each candidate crop would do
+    -- to this field if planted next. Writes no soil state.
+    self:_populateRotationForesight(info)
+end
+
+--- Compose the plain-language effect summary for a projectRotation() result.
+--- Built from the projection's own magnitudes so it always tracks the sim.
+---@param proj table|nil result of soilSystem:projectRotation()
+---@return string
+function SoilFieldDetailDialog:_rfEffectText(proj)
+    if proj == nil or proj.status == nil then
+        return tr("sf_rf_effect_neutral", "no change")
+    end
+    local parts = {}
+    if proj.fatigue then
+        parts[#parts + 1] = tr("sf_rf_effect_fatigue", "x1.15 depletion")
+    end
+    if proj.nitrogen == "up" then
+        parts[#parts + 1] = tr("sf_rf_effect_nplus", "+N")
+    end
+    if proj.disease == "down" then
+        parts[#parts + 1] = tr("sf_rf_effect_disease_down", "less disease")
+    elseif proj.disease == "up" then
+        parts[#parts + 1] = tr("sf_rf_effect_disease_up", "more disease")
+    end
+    if #parts == 0 then
+        return tr("sf_rf_effect_neutral", "no change")
+    end
+    return table.concat(parts, ", ")
+end
+
+--- Populate the Rotation Foresight rows for the current field.
+--- Read-only: every row's status comes from soilSystem:projectRotation(), never
+--- a second opinion. Shows a hint (and hides the rows) when the field has no
+--- crop history yet, since the projection is undefined until a crop has grown.
+---@param info table field info from getFieldInfo (provides lastCrop = live crop)
+function SoilFieldDetailDialog:_populateRotationForesight(info)
+    if self.detailRfCrop == nil then return end
+
+    local COLOR_POOR, _, COLOR_GOOD = getStatusColors()
+    local sfm = g_SoilFertilityManager
+
+    local function showRows(visible)
+        for i = 1, 3 do
+            if self.detailRfCrop[i]   then self.detailRfCrop[i]:setVisible(visible)   end
+            if self.detailRfStatus[i] then self.detailRfStatus[i]:setVisible(visible) end
+            if self.detailRfEffect[i] then self.detailRfEffect[i]:setVisible(visible) end
+        end
+    end
+
+    local currentCrop = info and info.lastCrop
+    if not currentCrop or currentCrop == "" or sfm == nil or sfm.soilSystem == nil then
+        showRows(false)
+        if self.detailRfIntro then self.detailRfIntro:setVisible(false) end
+        if self.detailRfHint  then self.detailRfHint:setVisible(true)   end
+        return
+    end
+
+    if self.detailRfIntro then self.detailRfIntro:setVisible(true)  end
+    if self.detailRfHint  then self.detailRfHint:setVisible(false)  end
+    showRows(true)
+
+    local candidates = rfPickCandidates(currentCrop)
+
+    for i = 1, 3 do
+        local candidate = candidates[i]
+        local cropEl, statusEl, effectEl =
+            self.detailRfCrop[i], self.detailRfStatus[i], self.detailRfEffect[i]
+
+        if candidate == nil or candidate == "" then
+            if cropEl   then cropEl:setText("")   end
+            if statusEl then statusEl:setText("") end
+            if effectEl then effectEl:setText("") end
+        else
+            local ok, proj = pcall(function()
+                return sfm.soilSystem:projectRotation(self._fieldId, candidate)
+            end)
+            if not ok then proj = nil end
+
+            -- Crop name (localized by the engine; falls back to a title-cased raw name)
+            if cropEl then
+                cropEl:setText(SoilUtils.getCropDisplayName(candidate) or candidate)
+            end
+
+            -- Status word + colour (Bonus/OK/Fatigue), matching the current-rotation row
+            if statusEl then
+                local status = proj and proj.status
+                local word, color
+                if status == "Bonus" then
+                    word, color = tr("sf_rf_status_bonus", "Bonus"), COLOR_GOOD
+                elseif status == "Fatigue" then
+                    word, color = tr("sf_rf_status_fatigue", "Fatigue"), COLOR_POOR
+                else
+                    word, color = tr("sf_rf_status_ok", "OK"), COLOR_DIM
+                end
+                statusEl:setText(word)
+                statusEl:setTextColor(unpack(color))
+            end
+
+            -- Effect summary with real magnitudes
+            if effectEl then
+                effectEl:setText(self:_rfEffectText(proj))
+            end
+        end
+    end
 end
 
 ---@param valueEl    table|nil
@@ -446,4 +603,15 @@ function SoilFieldDetailDialog:_showNoData()
     if self.detailLastCrop then self.detailLastCrop:setText("--") end
     if self.detailRotation  then self.detailRotation:setText("--") end
     clear(self.detailYieldEff, self.detailYieldEffStatus)
+
+    -- Rotation Foresight rows: blank them and drop to the hint.
+    if self.detailRfCrop then
+        for i = 1, 3 do
+            if self.detailRfCrop[i]   then self.detailRfCrop[i]:setText("")   end
+            if self.detailRfStatus[i] then self.detailRfStatus[i]:setText("") end
+            if self.detailRfEffect[i] then self.detailRfEffect[i]:setText("") end
+        end
+    end
+    if self.detailRfIntro then self.detailRfIntro:setVisible(false) end
+    if self.detailRfHint  then self.detailRfHint:setVisible(false)  end
 end

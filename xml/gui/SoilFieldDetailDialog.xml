@@ -72,6 +72,26 @@
       <Text profile="sfDetail_value"  id="detailYieldEff"       text="--"     position="-80px -477px"/>
       <Text profile="sfDetail_status" id="detailYieldEffStatus" text=""       position="90px -477px"/>
 
+      <!-- ─── ROTATION FORESIGHT (read-only pre-plant preview) ─── -->
+      <Bitmap profile="sfDetail_sectionBg3rotation" position="0px -515px"/>
+      <Text   profile="sfDetail_sectionHeader"  text="$l10n_sf_rf_section"          position="0px -520px"/>
+      <Text   profile="sfDetail_note" id="detailRfIntro" text="$l10n_sf_rf_intro"   position="0px -543px"/>
+
+      <Text profile="sfDetail_label"  id="detailRfCrop1"   text=""  position="-240px -570px"/>
+      <Text profile="sfDetail_value"  id="detailRfStatus1" text=""  position="-80px -570px"/>
+      <Text profile="sfDetail_status" id="detailRfEffect1" text=""  position="90px -570px"/>
+
+      <Text profile="sfDetail_label"  id="detailRfCrop2"   text=""  position="-240px -595px"/>
+      <Text profile="sfDetail_value"  id="detailRfStatus2" text=""  position="-80px -595px"/>
+      <Text profile="sfDetail_status" id="detailRfEffect2" text=""  position="90px -595px"/>
+
+      <Text profile="sfDetail_label"  id="detailRfCrop3"   text=""  position="-240px -620px"/>
+      <Text profile="sfDetail_value"  id="detailRfStatus3" text=""  position="-80px -620px"/>
+      <Text profile="sfDetail_status" id="detailRfEffect3" text=""  position="90px -620px"/>
+
+      <Text profile="sfDetail_note" id="detailRfHint" text="$l10n_sf_rf_hint"
+            position="0px -578px" size="640px 40px" wrapText="true" autoFitHeight="true" visible="false"/>
+
       <!-- No data fallback -->
       <Text profile="sfDetail_noData" id="detailNoData"
             text="$l10n_sf_detail_no_field"
@@ -89,7 +109,7 @@
   <GUIProfiles>
 
     <Profile name="sfDetail_bg" extends="fs25_dialogBg">
-      <size value="760px 700px"/>
+      <size value="760px 840px"/>
     </Profile>
 
     <!-- Section header: gold, bold, centered -->
@@ -147,6 +167,18 @@
     <Profile name="sfDetail_sectionBg3history" extends="baseReference" with="anchorTopCenter">
       <size value="700px 116px"/>
       <imageColor value="0.08 0.08 0.12 0.9"/>
+    </Profile>
+    <Profile name="sfDetail_sectionBg3rotation" extends="baseReference" with="anchorTopCenter">
+      <size value="700px 150px"/>
+      <imageColor value="0.06 0.10 0.14 0.9"/>
+    </Profile>
+
+    <!-- Small centered helper note (rotation foresight intro / hint) -->
+    <Profile name="sfDetail_note" extends="fs25_textDefault" with="anchorTopCenter">
+      <size value="660px 20px"/>
+      <textSize value="12px"/>
+      <textColor value="0.55 0.55 0.55 1"/>
+      <textAlignment value="center"/>
     </Profile>
 
     <!-- Field ID sub-title -->
