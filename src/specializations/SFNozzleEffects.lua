@@ -789,6 +789,17 @@ end
 
 -- Scale spray fluid consumption by the fraction of active nozzles.
 -- Non-custom-nozzle vehicles with See & Spray purchased drop to zero when no target.
+--
+-- SCOPE (accepted design, 2026-07-10): on injected base-game sprayers the See & Spray
+-- gating is WHOLE-TANK, not per-section on the ground. The synthetic virtual nozzles
+-- drive this usage fraction and run the field-boundary + threshold decisions, but FS25
+-- deposits product per section through its own work-area / VariableWorkWidth section
+-- states, which this mod deliberately does NOT override (doing so would fight GPS /
+-- AutoTrack section control). So a boom section hanging over the headland still
+-- physically deposits; See & Spray only reduces the total fluid used, and drops usage to
+-- zero when there is no target anywhere in the tank's field. True per-section spot
+-- spraying needs the effect geometry only the (removed) XML-nozzle rigs carried. This is
+-- an intentional limitation, not a bug - do not add a per-section ground hook here.
 function SFNozzleEffects:getSprayerUsage(superFunc, fillType, dt)
     local usage = superFunc(self, fillType, dt)
     local spec  = self[SFNozzleEffects.SPEC_TABLE_NAME]
