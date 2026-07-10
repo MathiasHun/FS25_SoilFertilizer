@@ -4616,6 +4616,94 @@ function SoilFertilitySystem:applyBurnEffect(fieldId, rateMultiplier)
     end
 end
 
+-- Crop rotation projection (shared by getFieldInfo + projectRotation)
+
+--- Pure crop-rotation status for a (mostRecent, previous) crop pair. Shared by
+--- getFieldInfo (current status) and projectRotation (hypothetical next crop) so the
+--- pre-plant preview can never disagree with the status the player actually gets.
+--- Returns "Bonus" / "OK" / "Fatigue", or nil when the pair is incomplete.
+---@param crop1Name string|nil most-recent crop (raw FS25 fruit-type name)
+---@param crop2Name string|nil the crop before it
+---@return string|nil
+function SoilFertilitySystem:_rotationStatusFor(crop1Name, crop2Name)
+    local cr = SoilConstants.CROP_ROTATION
+    if not cr or not crop1Name or not crop2Name then return nil end
+    local crop1 = string.lower(crop1Name)
+    local crop2 = string.lower(crop2Name)
+    local pf    = SoilConstants.PERENNIAL_FORAGE_NAMES or {}
+    if pf[crop1] then
+        -- Multi-cut perennial forage standing across cuts is normal management, not
+        -- monoculture fatigue (#694). Only a bonus when rotated INTO from a non-legume,
+        -- non-forage crop.
+        if cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] and not pf[crop2] then
+            return "Bonus"
+        end
+        return "OK"
+    elseif cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] then
+        return "Bonus"
+    elseif crop1 == crop2 then
+        return "Fatigue"
+    end
+    return "OK"
+end
+
+--- Read-only rotation foresight: "if the player plants candidateCropName next on this
+--- field, what rotation status and effects result?" A pure projection that writes no
+--- soil state. It runs SoilFertilizer's OWN rotation + disease-rotation logic with the
+--- candidate as the hypothetical most-recent crop and the field's current crop as the
+--- previous, so the preview always matches the outcome the player actually gets.
+---@param fieldId number
+---@param candidateCropName string raw/lowercase FS25 fruit-type name of the crop to preview
+---@return table|nil { candidate, follows, status, fatigue, fatigueMultiplier, nitrogen, disease } or nil
+function SoilFertilitySystem:projectRotation(fieldId, candidateCropName)
+    if not fieldId or fieldId <= 0 then return nil end
+    if not candidateCropName or candidateCropName == "" then return nil end
+
+    local info = self:getFieldInfo(fieldId)
+    if not info then return nil end
+
+    -- The candidate follows whatever crop is in the ground now (getFieldInfo resolves the
+    -- live crop, falling back to lastCrop). After the player harvests that crop and plants
+    -- the candidate, the candidate becomes lastCrop and the current crop becomes lastCrop2,
+    -- so the projected status is _rotationStatusFor(candidate, currentCrop).
+    local currentCrop = info.lastCrop
+    if not currentCrop or currentCrop == "" then
+        -- Nothing to follow yet: projection is undefined until the field has grown a crop.
+        return { candidate = candidateCropName, follows = nil, status = nil }
+    end
+
+    local status = self:_rotationStatusFor(candidateCropName, currentCrop)
+    local cr = SoilConstants.CROP_ROTATION
+
+    -- Disease-pressure direction, from SoilFertilizer's own disease-rotation multiplier on
+    -- the hypothetical post-plant history (candidate, currentCrop, previous). >1 raises
+    -- disease, <1 lowers it, 1.0 neutral. Guarded so it degrades gracefully if the disease
+    -- module is not present.
+    local disease = "neutral"
+    if SoilDiseaseSystem and SoilDiseaseSystem.rotationMult then
+        local mult = SoilDiseaseSystem.rotationMult({
+            lastCrop  = candidateCropName,
+            lastCrop2 = currentCrop,
+            lastCrop3 = info.lastCrop2,
+        })
+        if mult and mult > 1.001 then
+            disease = "up"
+        elseif mult and mult < 0.999 then
+            disease = "down"
+        end
+    end
+
+    return {
+        candidate         = candidateCropName,
+        follows           = currentCrop,
+        status            = status,                              -- "Bonus" / "OK" / "Fatigue" / nil
+        fatigue           = (status == "Fatigue"),               -- nutrients deplete faster (x FATIGUE_MULTIPLIER)
+        fatigueMultiplier = (cr and cr.FATIGUE_MULTIPLIER) or 1.0,
+        nitrogen          = (status == "Bonus") and "up" or "neutral", -- legume spring N bonus
+        disease           = disease,
+    }
+end
+
 --- Get field info for display (HUD, console, etc)
 ---@param fieldId number The field ID to query
 ---@param x number|nil Optional world X coordinate for local cell lookup
@@ -4726,30 +4814,11 @@ function SoilFertilitySystem:getFieldInfo(fieldId, x, z)
         cropName = field.sownCrop or field.lastCrop
     end
 
-    -- Compute crop rotation status for external consumers (e.g. FarmTablet)
-    local rotationStatus = nil
-    if SoilConstants.CROP_ROTATION and field.lastCrop and field.lastCrop2 then
-        local cr      = SoilConstants.CROP_ROTATION
-        local crop1   = string.lower(field.lastCrop)
-        local crop2   = string.lower(field.lastCrop2)
-        local pf      = SoilConstants.PERENNIAL_FORAGE_NAMES or {}
-        if pf[crop1] then
-            -- Multi-cut perennial forage: the same crop standing across several cuts is
-            -- normal management, not monoculture fatigue (#694). Only flag a bonus if the
-            -- player genuinely rotated INTO it from a non-legume, non-forage crop.
-            if cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] and not pf[crop2] then
-                rotationStatus = "Bonus"
-            else
-                rotationStatus = "OK"
-            end
-        elseif cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] then
-            rotationStatus = "Bonus"
-        elseif crop1 == crop2 then
-            rotationStatus = "Fatigue"
-        else
-            rotationStatus = "OK"
-        end
-    end
+    -- Compute crop rotation status for external consumers (e.g. FarmTablet).
+    -- Delegates to the shared _rotationStatusFor helper so projectRotation() (the
+    -- pre-plant foresight read) computes the identical status and can never disagree
+    -- with what the player actually gets.
+    local rotationStatus = self:_rotationStatusFor(field.lastCrop, field.lastCrop2)
 
     -- Resolve per-crop nutrient targets (nil when no crop planted)
     local cropTargets = nil
