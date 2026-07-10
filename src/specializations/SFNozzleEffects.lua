@@ -436,6 +436,18 @@ function SFNozzleEffects:onPostLoad(savegame)
     spec.numCustomEffects = #spec.sprayerEffects
     spec.hasCustomEffects = spec.numCustomEffects > 0
 
+    -- Real effect nodes = XML nozzles that clone a shader plane. Synthetic virtual
+    -- nozzles (injected base-game sprayers with no <sprayer.nozzles>) have effectNode = nil
+    -- and draw nothing, so getAreEffectsVisible must NOT suppress the vanilla spray for
+    -- them - doing so leaves nothing on screen (the e0e3b18 too-light regression).
+    spec.hasRealEffects = false
+    for _, ed in ipairs(spec.sprayerEffects) do
+        if not ed.isSynthetic then
+            spec.hasRealEffects = true
+            break
+        end
+    end
+
     if spec.hasCustomEffects then
         if SFNozzleEffects._i3dReady then
             sfSetupEffectNodes(self)
@@ -754,7 +766,11 @@ end
 -- Non-custom vehicles always delegate to vanilla; usage gating is in getSprayerUsage.
 function SFNozzleEffects:getAreEffectsVisible(superFunc)
     local spec = self[SFNozzleEffects.SPEC_TABLE_NAME]
-    if spec.hasCustomEffects then return false end
+    -- Only suppress the vanilla spray particles when we have REAL effect nodes (shader
+    -- planes) to draw in their place. Synthetic virtual nozzles (injected base-game
+    -- sprayers) have no effect node, so suppressing vanilla would leave nothing visible
+    -- (the e0e3b18 regression that made spray look nearly invisible).
+    if spec.hasCustomEffects and spec.hasRealEffects then return false end
     return superFunc(self)
 end
 
