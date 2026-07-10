@@ -2943,6 +2943,17 @@ function HookManager:installSprayerAreaHook()
                 local vww = self.spec_variableWorkWidth
                 local soilSys = g_SoilFertilityManager.soilSystem
 
+                -- Section scratch + variable-rate state, hoisted to the scope shared by the
+                -- primary VWW block and the multi-tank block below. The primary block populates
+                -- them; the multi-tank block reuses the populated values (or the safe defaults
+                -- when there are no active sections). Declaring them here prevents the multi-tank
+                -- block from referencing out-of-scope locals, which resolved to nil globals and
+                -- crashed on `scratchN > 0` (compare number < nil) 1000+ times per spray pass.
+                local scratch = hookMgrRef._sectionScratch
+                local scratchN = 0
+                local vrSectionRates = nil
+                local vrWeightSum = 0.0
+
                 local function applySingle(fId, sectionLiters, spx, spz)
                     if not fId or fId <= 0 then return end
                     if soilSys then
@@ -2972,9 +2983,10 @@ function HookManager:installSprayerAreaHook()
 
                 if vww and vww.sections and #vww.sections > 0 then
                     SoilLogger.debug("SprayerHook: VWW path - %d total sections for %s", #vww.sections, fillType.name)
-                    -- Collect active sections into pre-allocated scratch table (avoids per-tick allocation)
-                    local scratch = hookMgrRef._sectionScratch
-                    local scratchN = 0
+                    -- Collect active sections into pre-allocated scratch table (avoids per-tick allocation).
+                    -- Assigns the hoisted vars (declared above) so the multi-tank block can reuse them.
+                    scratch = hookMgrRef._sectionScratch
+                    scratchN = 0
                     for _, section in ipairs(vww.sections) do
                         if section.isActive or section.isCenter then
                             scratchN = scratchN + 1
@@ -2985,7 +2997,7 @@ function HookManager:installSprayerAreaHook()
 
                     if scratchN > 0 then
                         -- Variable Rate (System 3): look up per-section weights if active
-                        local vrSectionRates = nil
+                        vrSectionRates = nil
                         do
                             local sfmVR = g_SoilFertilityManager
                             local smVR  = sfmVR and sfmVR.sensorManager
@@ -2999,7 +3011,7 @@ function HookManager:installSprayerAreaHook()
                         -- toward deficit sections. Without normalization, applySingle would
                         -- receive (wap.usage * manualMult) * vrWeight - a double reduction
                         -- when auto rate selects a sub-unity multiplier (#555/#538).
-                        local vrWeightSum = 0.0
+                        vrWeightSum = 0.0
                         for i = 1, scratchN do
                             local w = (vrSectionRates and vrSectionRates[scratch[i]]) or 1.0
                             vrWeightSum = vrWeightSum + w
