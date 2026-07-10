@@ -375,6 +375,54 @@ function SFNozzleEffects:onPostLoad(savegame)
 
     spec.pendingNozzles   = nil
 
+    -- ── Virtual-nozzle fallback (no <sprayer.nozzles> in the vehicle XML) ─────────
+    -- See & Spray is now injected onto every sprayer, but only the removed JD rigs ever
+    -- declared <sprayer.nozzles>. Base-game sprayers declare none, so the loop above
+    -- produces zero effects and the whole per-nozzle engine (field-boundary passes +
+    -- per-cell threshold) never runs - See & Spray degrades to a crude whole-tank gate.
+    -- Restore per-section behaviour by synthesising one virtual nozzle per VWW section,
+    -- probing at the section's outer-edge node (the point that crosses the headland first).
+    --
+    -- Gated on See & Spray being purchased: without it we must NOT flip hasCustomEffects
+    -- true, or getAreEffectsVisible would suppress vanilla spray visuals on every stock
+    -- sprayer in the game and getSprayerUsage would start alpha-scaling them. Only the
+    -- sprayers the player actually upgraded get the custom engine.
+    local hasAnySeeSpray = spec.seeSprayWeed or spec.seeSprayPest or spec.seeSprayDisease
+    if hasAnySeeSpray and #spec.sprayerEffects == 0 then
+        for _, section in ipairs(spec_vww.sections) do
+            -- Non-centre sections probe at maxWidthNode (their outer edge). Centre sections
+            -- have no reliable maxWidthNode and their isActive flag is never maintained by
+            -- updateSectionStates, so probe at the vehicle root and map to sectionIndex 0
+            -- (the convention that skips the section.isActive gate - a centre nozzle is
+            -- always on, exactly like the XML-nozzle path above).
+            local probeNode = (not section.isCenter and section.maxWidthNode) or self.rootNode
+            if probeNode ~= nil and probeNode ~= 0 then
+                local sectionIndex = section.isCenter and 0 or (section.index or 0)
+                local effectData = {
+                    effectNode   = nil,
+                    probeNode    = probeNode,
+                    fadeCur      = {1, -1},
+                    fadeDir      = SFNozzleEffects.FADE_DIR_OFF,
+                    state        = STATE_OFF,
+                    sectionIndex = sectionIndex,
+                    isActive     = false,
+                    isSynthetic  = true,          -- derived from VWW geometry, not XML
+                }
+
+                spec.sprayerEffects[#spec.sprayerEffects + 1] = effectData
+
+                if spec.sprayerEffectsBySection[sectionIndex] == nil then
+                    spec.sprayerEffectsBySection[sectionIndex] = {}
+                end
+                local bucket = spec.sprayerEffectsBySection[sectionIndex]
+                bucket[#bucket + 1] = effectData
+            end
+        end
+
+        SoilLogger.debug("[SFNozzleEffects] synthesized %d virtual nozzle(s) from %d VWW section(s) for %s",
+            #spec.sprayerEffects, #spec_vww.sections, tostring(self.configFileName))
+    end
+
     -- Cache ground-type density map channels for the field boundary check.
     -- Must extract only the GROUND_TYPE channel; reading the full terrainDetailId
     -- packs in angle/spray bits that can be non-zero even on headland grass.
