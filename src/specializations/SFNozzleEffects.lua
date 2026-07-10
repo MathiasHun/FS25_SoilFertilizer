@@ -239,6 +239,7 @@ end
 function SFNozzleEffects.registerOverwrittenFunctions(vehicleType)
     SpecializationUtil.registerOverwrittenFunction(vehicleType, "getSprayerUsage",      SFNozzleEffects.getSprayerUsage)
     SpecializationUtil.registerOverwrittenFunction(vehicleType, "getAreEffectsVisible", SFNozzleEffects.getAreEffectsVisible)
+    SpecializationUtil.registerOverwrittenFunction(vehicleType, "getIsWorkAreaActive",  SFNozzleEffects.getIsWorkAreaActive)
 end
 
 function SFNozzleEffects.registerEventListeners(vehicleType)
@@ -539,6 +540,40 @@ function SFNozzleEffects:onUpdate(dt, isActiveForInput, isActiveForInputIgnoreSe
     local lastSpeed  = tonumber(self.getLastSpeed and self:getLastSpeed()) or 0
     self:sfUpdateNozzleEffectsState(spec.sprayerEffects, dt, isTurnedOn, lastSpeed)
 
+    -- Aggregate the per-nozzle See & Spray decision into a per-section flag so
+    -- getIsWorkAreaActive can gate the ACTUAL ground deposition per section (not just the
+    -- fluid usage). A section is suppressed when it has nozzles and none are active (no
+    -- target confirmed / crossed the field boundary). Sections with no nozzle - e.g. the
+    -- centre always-on zone (sectionIndex 0) - get no entry and keep spraying.
+    local sectionActive = {}
+    for _, ed in ipairs(spec.sprayerEffects) do
+        local idx = ed.sectionIndex
+        if idx ~= nil and idx ~= 0 then
+            if sectionActive[idx] == nil then sectionActive[idx] = false end
+            if ed.isActive then sectionActive[idx] = true end
+        end
+    end
+    spec.sectionActive = sectionActive
+
+    -- Only gate ground deposition per section for See & Spray CHEMICALS (herbicide /
+    -- insecticide / fungicide). Fertiliser keeps its existing behaviour (usage-scaled,
+    -- never hard-stopped per section), so the variable-rate logic does not silently start
+    -- skipping cells. Resolved once here from the current spray fill type.
+    local isChem = false
+    local sprayerSpec = self.spec_sprayer
+    local wap = sprayerSpec and sprayerSpec.workAreaParameters
+    local fillTypeIndex = wap and wap.sprayFillType
+    if fillTypeIndex and fillTypeIndex ~= 0 and g_fillTypeManager then
+        local ft = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
+        if ft then
+            isChem = (spec.seeSprayPest    and SoilConstants.PEST_PRESSURE.INSECTICIDE_TYPES[ft.name])
+                  or (spec.seeSprayDisease and SoilConstants.DISEASE_PRESSURE.FUNGICIDE_TYPES[ft.name])
+                  or (spec.seeSprayWeed    and SoilConstants.WEED_PRESSURE.HERBICIDE_TYPES[ft.name])
+                  or false
+        end
+    end
+    spec._sfDepositGate = isChem and true or false
+
     -- Animate shader fade transitions for any nozzle with an effect node.
     for _, effectData in ipairs(spec.sprayerEffects) do
         local effectNode = effectData.effectNode
@@ -774,6 +809,31 @@ function SFNozzleEffects:getAreEffectsVisible(superFunc)
     return superFunc(self)
 end
 
+-- Gate the ACTUAL per-section ground deposition. VariableWorkWidth's own
+-- getIsWorkAreaActive already returns false for a section the game turned off
+-- (section.isActive, driven by boom width / GPS / manual control); we AND our See & Spray
+-- decision on top, so a section with no target - or one that crossed the field boundary -
+-- stops depositing product, not just consuming less fluid. See & Spray only ever
+-- SUPPRESSES (it never widens past what the game already allows), so this composes safely
+-- regardless of overwrite order. Active only when See & Spray is purchased on a
+-- custom-nozzle sprayer; stock sprayers and non-See&Spray fills fall straight through.
+function SFNozzleEffects:getIsWorkAreaActive(superFunc, workArea)
+    if not superFunc(self, workArea) then return false end
+
+    local spec = self[SFNozzleEffects.SPEC_TABLE_NAME]
+    if not spec or not spec.hasCustomEffects then return true end
+
+    -- Only gate deposition for See & Spray chemicals (set in onUpdate); fertiliser is
+    -- never hard-stopped per section here.
+    if not spec._sfDepositGate then return true end
+
+    local idx = workArea.sectionIndex
+    if idx ~= nil and spec.sectionActive ~= nil and spec.sectionActive[idx] == false then
+        return false
+    end
+    return true
+end
+
 -- Returns (numActive, fraction) of nozzles currently active.
 function SFNozzleEffects:sfGetNumNozzleEffectsActive()
     local spec = self[SFNozzleEffects.SPEC_TABLE_NAME]
@@ -789,17 +849,8 @@ end
 
 -- Scale spray fluid consumption by the fraction of active nozzles.
 -- Non-custom-nozzle vehicles with See & Spray purchased drop to zero when no target.
---
--- SCOPE (accepted design, 2026-07-10): on injected base-game sprayers the See & Spray
--- gating is WHOLE-TANK, not per-section on the ground. The synthetic virtual nozzles
--- drive this usage fraction and run the field-boundary + threshold decisions, but FS25
--- deposits product per section through its own work-area / VariableWorkWidth section
--- states, which this mod deliberately does NOT override (doing so would fight GPS /
--- AutoTrack section control). So a boom section hanging over the headland still
--- physically deposits; See & Spray only reduces the total fluid used, and drops usage to
--- zero when there is no target anywhere in the tank's field. True per-section spot
--- spraying needs the effect geometry only the (removed) XML-nozzle rigs carried. This is
--- an intentional limitation, not a bug - do not add a per-section ground hook here.
+-- This handles FLUID USAGE only; the actual per-section ground deposition is gated
+-- separately in getIsWorkAreaActive (which reads the same per-section decision).
 function SFNozzleEffects:getSprayerUsage(superFunc, fillType, dt)
     local usage = superFunc(self, fillType, dt)
     local spec  = self[SFNozzleEffects.SPEC_TABLE_NAME]
