@@ -555,25 +555,6 @@ function SFNozzleEffects:onUpdate(dt, isActiveForInput, isActiveForInputIgnoreSe
     end
     spec.sectionActive = sectionActive
 
-    -- Only gate ground deposition per section for See & Spray CHEMICALS (herbicide /
-    -- insecticide / fungicide). Fertiliser keeps its existing behaviour (usage-scaled,
-    -- never hard-stopped per section), so the variable-rate logic does not silently start
-    -- skipping cells. Resolved once here from the current spray fill type.
-    local isChem = false
-    local sprayerSpec = self.spec_sprayer
-    local wap = sprayerSpec and sprayerSpec.workAreaParameters
-    local fillTypeIndex = wap and wap.sprayFillType
-    if fillTypeIndex and fillTypeIndex ~= 0 and g_fillTypeManager then
-        local ft = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
-        if ft then
-            isChem = (spec.seeSprayPest    and SoilConstants.PEST_PRESSURE.INSECTICIDE_TYPES[ft.name])
-                  or (spec.seeSprayDisease and SoilConstants.DISEASE_PRESSURE.FUNGICIDE_TYPES[ft.name])
-                  or (spec.seeSprayWeed    and SoilConstants.WEED_PRESSURE.HERBICIDE_TYPES[ft.name])
-                  or false
-        end
-    end
-    spec._sfDepositGate = isChem and true or false
-
     -- Animate shader fade transitions for any nozzle with an effect node.
     for _, effectData in ipairs(spec.sprayerEffects) do
         local effectNode = effectData.effectNode
@@ -657,10 +638,9 @@ function SFNozzleEffects:sfUpdateNozzleEffectState(effectData, dt, isTurnedOn, l
 
     if not ft then return isTurnedOn, 1 end
 
-    -- Classify the fill type before probing so field-boundary passes can be selectively
-    -- applied.  Passes 1+2 only gate See & Spray chemicals (herbicide / insecticide /
-    -- fungicide).  Fertilisers must NOT be gated - outer boom sections that cross the
-    -- headland edge while the vehicle is inside the field should still spray.
+    -- Classify the fill type. Used below for the See & Spray threshold checks (chemicals
+    -- only). The field-boundary passes 1+2 now run for ALL fills (see below), so a
+    -- fertiliser section that leaves the field / crosses the boundary is suppressed too.
     local ssCfg     = SoilConstants.SEE_AND_SPRAY
     local isPest    = spec.seeSprayPest    and SoilConstants.PEST_PRESSURE.INSECTICIDE_TYPES[ft.name]
     local isDisease = spec.seeSprayDisease and SoilConstants.DISEASE_PRESSURE.FUNGICIDE_TYPES[ft.name]
@@ -680,9 +660,11 @@ function SFNozzleEffects:sfUpdateNozzleEffectState(effectData, dt, isTurnedOn, l
     local nozzleFarmId = nil
 
     if probeX then
-        -- Passes 1+2: field-boundary checks - See & Spray chemicals only.
-        -- Fertiliser outer boom sections crossing the headland must not be gated here.
-        if isPest or isDisease or isWeed then
+        -- Passes 1+2: field-boundary checks. Applied to ALL fills (chemicals AND
+        -- fertiliser): a section that goes off-field or crosses onto an adjacent parcel
+        -- stops depositing, so per-section suppression at the field boundary works for
+        -- fertiliser too, not only See & Spray chemicals.
+        do
             -- Pass 1: GROUND_TYPE channel - off-field (grass / road) → suppress.
             if spec._groundTypeMapId then
                 local rawBits = getDensityAtWorldPos(spec._groundTypeMapId, probeX, 0, probeZ)
@@ -823,9 +805,11 @@ function SFNozzleEffects:getIsWorkAreaActive(superFunc, workArea)
     local spec = self[SFNozzleEffects.SPEC_TABLE_NAME]
     if not spec or not spec.hasCustomEffects then return true end
 
-    -- Only gate deposition for See & Spray chemicals (set in onUpdate); fertiliser is
-    -- never hard-stopped per section here.
-    if not spec._sfDepositGate then return true end
+    -- Gate deposition for every fill once See & Spray is purchased: chemicals stop on a
+    -- no-target cell, fertiliser stops off-field / past the boundary and on a cell that
+    -- already has adequate levels of the nutrients it provides (Pass 3 variable rate).
+    local hasAny = spec.seeSprayWeed or spec.seeSprayPest or spec.seeSprayDisease
+    if not hasAny then return true end
 
     local idx = workArea.sectionIndex
     if idx ~= nil and spec.sectionActive ~= nil and spec.sectionActive[idx] == false then
