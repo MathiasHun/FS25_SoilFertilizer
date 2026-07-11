@@ -36,3 +36,5 @@
 ## Deferred / parked
 - Precision Farming integration: never. Permanent stand-down house rule, not a roadmap item.
 - Grass/hay as a full crop (weed/pest/disease + yield-% parity): parked by design; grass stays soil-aware only.
+- Rotation Foresight v2: an at-the-drill / sowing pre-plant prompt. Needs a reachable sowing/pre-plant hook; v1 ships on the field-detail / scout / FarmTablet surface and does not need it. (ledger OPEN A)
+- Disease progressive reveal: a richer readout where the Disease track mirrors the intel ladder - blank unscouted, "present" once the dog flags it, full % + name once scouted. Post-rollout upgrade; needs per-field knowledge state in SoilHUD. (ledger, 2026-07)
