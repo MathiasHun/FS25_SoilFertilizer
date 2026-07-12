@@ -32,6 +32,7 @@
 - [ ] NetworkSync v2 delta adoption (blocks on: FS25_NetworkSync v2.0.0.0, now released; this is an opt-in on our side).
 - [ ] getFieldInfo contract confirmation (blocks on: CropDisease and DairyCore audits confirming they call the API, not the internal table).
 - [ ] ProStaff discount (blocks on: FS25_ProStaffCoOp `proStaffManager` handle + the SF-side cost hook site being scheduled).
+- [ ] Soil moisture coupling: expose SF's per-field compaction + organic matter as a water-retention signal for SeasonalCropStress to modulate moisture stress (compaction sharpens wet/dry, OM buffers). PIPELINE, community-originated (nemrod153). Blocks on Claude(A)'s arrow-ownership call (SF already runs moisture -> compaction; this adds the inverse, so the loop must be broken). Proposal: ecosystem-dev-tracking `systems/soil-moisture-coupling/README.md`. SF lean: SCS stays moisture authority, SF read-only, one-way.
 
 ## Deferred / parked
 - Precision Farming integration: never. Permanent stand-down house rule, not a roadmap item.
