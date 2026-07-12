@@ -1022,7 +1022,9 @@ function SoilFertilityManager:onScoutInput()
         return
     end
 
-    local rep = self.soilSystem:getScoutReport(fieldId)
+    -- The Scout hotkey is a deliberate scout: reveal the field's disease so the flash
+    -- message and the Scout dialog it opens both show the identified infection.
+    local rep = self.soilSystem:scoutField(fieldId)
     if not rep or rep.enabled == false then return end
 
     local function disName(id)

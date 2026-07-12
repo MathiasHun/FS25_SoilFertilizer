@@ -312,7 +312,9 @@ function SoilSettingsGUI:consoleCommandScout(fieldId)
     local fid = resolveDiseaseFieldId(fieldId)
     if not fid then return "Usage: SoilScout <fieldId>  (or stand on a field)" end
 
-    local rep = sfm.soilSystem:getScoutReport(fid)
+    -- Scouting is the deliberate reveal: it flips the discovery gate so the report
+    -- returns the full truth (and, in MP, tells the server to open the gate farm-wide).
+    local rep = sfm.soilSystem:scoutField(fid)
     if not rep then return string.format("Field %d: no soil data", fid) end
     if rep.enabled == false then return "Disease system is disabled (enable Disease Pressure in settings)" end
 

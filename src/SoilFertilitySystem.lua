@@ -1778,6 +1778,7 @@ function SoilFertilitySystem:_updateActiveDisease(fieldId, field, season, isRain
         if picked then
             field.activeDisease = picked
             field.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(picked)
+            field.diseaseDiscovered = false  -- a fresh infection is unknown until scouted
         end
     elseif field.activeDisease and (field.activeDiseaseSeverity == nil) then
         field.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(field.activeDisease)
@@ -1795,6 +1796,23 @@ function SoilFertilitySystem:getScoutReport(fieldId)
         return { fieldId = fieldId, enabled = false }
     end
 
+    -- Discovery gate: a NAMED active infection stays UNKNOWN in the report until the
+    -- field has been deliberately scouted (scoutField) or revealed by a future dog /
+    -- ProStaff report. This is the single source of truth for the whole disease-intel
+    -- economy - every consumer (scout menu, console, FarmTablet) inherits the gate from
+    -- here. Pure read: it NEVER sets discovered itself, so merely viewing can't reveal.
+    -- A field with no named infection is not gated (nothing to discover).
+    if field.activeDisease and not field.diseaseDiscovered then
+        return {
+            fieldId = fieldId,
+            enabled = true,
+            discovered = false,
+            crop = field.lastCrop,
+            fungicideActive = (field.fungicideDaysLeft or 0) > 0,
+            fungicideDaysLeft = field.fungicideDaysLeft or 0,
+        }
+    end
+
     local dp = SoilConstants.DISEASE_PRESSURE
     local pressure = field.diseasePressure or 0
     local tier
@@ -1807,6 +1825,7 @@ function SoilFertilitySystem:getScoutReport(fieldId)
     local report = {
         fieldId = fieldId,
         enabled = true,
+        discovered = true,
         pressure = pressure,
         tier = tier,
         fungicideActive = (field.fungicideDaysLeft or 0) > 0,
@@ -1824,6 +1843,35 @@ function SoilFertilitySystem:getScoutReport(fieldId)
         end
     end
     return report
+end
+
+--- Deliberately scout a field: reveal its disease so getScoutReport returns the full
+--- truth from here on. The free bottom rung of the disease-intel economy - the player
+--- scouts each field one at a time (or buys a ProStaff report / gets a dog ping) to learn
+--- what is on it. A fresh infection re-hides (onset resets diseaseDiscovered), so a new
+--- outbreak must be re-scouted. Server-authoritative in MP: a client marks it locally
+--- (optimistic - discovery is monotonic) and asks the server to make it authoritative and
+--- sync it farm-wide via the field-update broadcast.
+---@param fieldId number
+---@return table|nil report  the now-revealed scout report
+function SoilFertilitySystem:scoutField(fieldId)
+    local field = self.fieldData and self.fieldData[fieldId]
+    if not field then return self:getScoutReport(fieldId) end
+
+    if not field.diseaseDiscovered then
+        field.diseaseDiscovered = true
+        if g_currentMission and g_currentMission.missionDynamicInfo
+           and g_currentMission.missionDynamicInfo.isMultiplayer then
+            if not g_server then
+                if SoilScoutFieldEvent then
+                    g_client:getServerConnection():sendEvent(SoilScoutFieldEvent.new(fieldId))
+                end
+            elseif SoilFieldUpdateEvent then
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
+            end
+        end
+    end
+    return self:getScoutReport(fieldId)
 end
 
 --- Apply a named fungicide to a field via the menu/console path (no physical fill type).
@@ -1966,6 +2014,9 @@ function SoilFertilitySystem:debugSetDisease(fieldId, pressure, diseaseId)
         field.activeDisease = picked
         field.activeDiseaseSeverity = picked and SoilDiseaseSystem.yieldSeverity(picked) or 1.0
     end
+    -- Forced test disease starts unknown; the console SoilSetDisease re-scouts after,
+    -- so it still shows for the tester, but a direct debug caller gets the gated state.
+    field.diseaseDiscovered = false
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
@@ -2563,6 +2614,7 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
         fungicideDaysLeft = 0,
         activeDisease = nil,        -- DISEASE_DEFS id of the current named infection (nil = none)
         activeDiseaseSeverity = 1.0,-- cached yield-severity multiplier for activeDisease
+        diseaseDiscovered = false,  -- discovery gate: an active infection stays UNKNOWN in every scout report until deliberately scouted (or revealed by a future dog / ProStaff report)
         lastFungicide = nil,        -- last chemical applied (for resistance / UI flavor)
         dryDayCount = 0,
         nutrientBuffer = {},  -- Tracks [fillTypeIndex] = litersApplied (reset daily)
@@ -5007,6 +5059,7 @@ function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
             setXMLFloat(xmlFile, fieldKey .. "#diseasePressure", field.diseasePressure or 0)
             setXMLInt(xmlFile, fieldKey .. "#fungicideDaysLeft", field.fungicideDaysLeft or 0)
             setXMLString(xmlFile, fieldKey .. "#activeDisease", field.activeDisease or "")
+            setXMLInt(xmlFile, fieldKey .. "#diseaseDiscovered", field.diseaseDiscovered and 1 or 0)
             setXMLString(xmlFile, fieldKey .. "#lastFungicide", field.lastFungicide or "")
             setXMLInt(xmlFile, fieldKey .. "#dryDayCount", field.dryDayCount or 0)
             setXMLInt(xmlFile, fieldKey .. "#burnDaysLeft", field.burnDaysLeft or 0)
@@ -5119,6 +5172,7 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             fungicideDaysLeft = getXMLInt(xmlFile, fieldKey .. "#fungicideDaysLeft") or 0,
             activeDisease = getXMLString(xmlFile, fieldKey .. "#activeDisease"),
             activeDiseaseSeverity = 1.0,
+            diseaseDiscovered = (getXMLInt(xmlFile, fieldKey .. "#diseaseDiscovered") or 0) == 1,
             lastFungicide = getXMLString(xmlFile, fieldKey .. "#lastFungicide"),
             dryDayCount = getXMLInt(xmlFile, fieldKey .. "#dryDayCount") or 0,
             burnDaysLeft = getXMLInt(xmlFile, fieldKey .. "#burnDaysLeft") or 0,
@@ -5305,6 +5359,7 @@ function SoilFertilitySystem:getSoilStateTable()
                 diseasePressure       = field.diseasePressure or 0,
                 fungicideDaysLeft     = field.fungicideDaysLeft or 0,
                 activeDisease         = field.activeDisease or "",
+                diseaseDiscovered     = field.diseaseDiscovered or false,
                 lastFungicide         = field.lastFungicide or "",
                 dryDayCount           = field.dryDayCount or 0,
                 burnDaysLeft          = field.burnDaysLeft or 0,
@@ -5392,6 +5447,7 @@ function SoilFertilitySystem:applySoilStateTable(data)
                 fungicideDaysLeft     = e.fungicideDaysLeft or 0,
                 activeDisease         = e.activeDisease,
                 activeDiseaseSeverity = 1.0,
+                diseaseDiscovered     = e.diseaseDiscovered or false,
                 lastFungicide         = e.lastFungicide,
                 dryDayCount           = e.dryDayCount or 0,
                 burnDaysLeft          = e.burnDaysLeft or 0,

@@ -422,6 +422,7 @@ function SoilFullSyncEvent:readStream(streamId, connection)
         -- Named active disease (appended last by writeStream)
         local activeDisease = streamReadString(streamId)
         if activeDisease == "" then activeDisease = nil end
+        local diseaseDiscovered = streamReadBool(streamId)
 
         -- Validate and sanitize field data
         local function validateNumber(value, min, max, default, name)
@@ -473,6 +474,7 @@ function SoilFullSyncEvent:readStream(streamId, connection)
                 fungicideDaysLeft = diseaseDays,
                 activeDisease = activeDisease,
                 activeDiseaseSeverity = (activeDisease and SoilDiseaseSystem) and SoilDiseaseSystem.yieldSeverity(activeDisease) or 1.0,
+                diseaseDiscovered = diseaseDiscovered or false,
                 dryDayCount = dryDays,
                 burnDaysLeft = burnDays,
                 coverageFraction = math.max(0, math.min(1, coverageFrac or 0)),
@@ -557,6 +559,7 @@ function SoilFullSyncEvent:writeStream(streamId, connection)
 
         -- Named active disease (appended last to keep older alignment intact)
         streamWriteString(streamId, field.activeDisease or "")
+        streamWriteBool(streamId, field.diseaseDiscovered or false)
     end
 end
 
@@ -705,6 +708,7 @@ function SoilFieldBatchSyncEvent:writeStream(streamId, connection)
 
         -- Named active disease (appended last to keep zone alignment intact)
         streamWriteString(streamId, field.activeDisease or "")
+        streamWriteBool(streamId, field.diseaseDiscovered or false)
     end
 end
 
@@ -772,6 +776,7 @@ function SoilFieldBatchSyncEvent:readStream(streamId, connection)
         -- Named active disease (consume unconditionally to keep stream aligned)
         local activeDisease = streamReadString(streamId)
         if activeDisease == "" then activeDisease = nil end
+        local diseaseDiscovered = streamReadBool(streamId)
 
         if type(fieldId) == "number" and fieldId >= 0 then
             self.batchFields[fieldId] = {
@@ -795,6 +800,7 @@ function SoilFieldBatchSyncEvent:readStream(streamId, connection)
                 fungicideDaysLeft     = math.max(0, diseaseDays),
                 activeDisease         = activeDisease,
                 activeDiseaseSeverity = (activeDisease and SoilDiseaseSystem) and SoilDiseaseSystem.yieldSeverity(activeDisease) or 1.0,
+                diseaseDiscovered     = diseaseDiscovered or false,
                 dryDayCount           = math.max(0, dryDays),
                 burnDaysLeft          = math.max(0, burnDays),
                 nutrientBuffer        = buffer,
@@ -981,6 +987,7 @@ function SoilFieldUpdateEvent:readStream(streamId, connection)
     -- Named active disease (appended last by writeStream)
     local activeDisease = streamReadString(streamId)
     if activeDisease == "" then activeDisease = nil end
+    local diseaseDiscovered = streamReadBool(streamId)
 
     -- Clamp all values to valid ranges
     self.field = {
@@ -1009,6 +1016,7 @@ function SoilFieldUpdateEvent:readStream(streamId, connection)
         fungicideDaysLeft = math.max(0, diseaseDays),
         activeDisease = activeDisease,
         activeDiseaseSeverity = (activeDisease and SoilDiseaseSystem) and SoilDiseaseSystem.yieldSeverity(activeDisease) or 1.0,
+        diseaseDiscovered = diseaseDiscovered or false,
         dryDayCount = math.max(0, dryDays),
         burnDaysLeft = math.max(0, burnDays),
         nutrientBuffer   = buffer,
@@ -1079,6 +1087,7 @@ function SoilFieldUpdateEvent:writeStream(streamId, connection)
 
     -- Named active disease (appended last)
     streamWriteString(streamId, self.field.activeDisease or "")
+    streamWriteBool(streamId, self.field.diseaseDiscovered or false)
 end
 
 function SoilFieldUpdateEvent:run(connection)
@@ -1192,6 +1201,43 @@ function SoilTreatFieldEvent:run(connection)
         charge = true,
         farmId = farmId,
     })
+end
+
+-- ==========================================================================
+-- SoilScoutFieldEvent (client -> server): a client scouted a field. The server
+-- marks the disease discovered (authoritative, farm-wide) and re-broadcasts the
+-- field so every client's discovery gate opens. Discovery is monotonic, so no
+-- validation beyond a known field is needed.
+-- ==========================================================================
+SoilScoutFieldEvent = {}
+SoilScoutFieldEvent_mt = Class(SoilScoutFieldEvent, Event)
+
+InitEventClass(SoilScoutFieldEvent, "SoilScoutFieldEvent")
+
+function SoilScoutFieldEvent.emptyNew()
+    return Event.new(SoilScoutFieldEvent_mt)
+end
+
+function SoilScoutFieldEvent.new(fieldId)
+    local self = SoilScoutFieldEvent.emptyNew()
+    self.fieldId = fieldId
+    return self
+end
+
+function SoilScoutFieldEvent:readStream(streamId, connection)
+    self.fieldId = streamReadInt32(streamId)
+    self:run(connection)
+end
+
+function SoilScoutFieldEvent:writeStream(streamId, connection)
+    streamWriteInt32(streamId, self.fieldId or 0)
+end
+
+function SoilScoutFieldEvent:run(connection)
+    -- SERVER ONLY: authoritative reveal (scoutField broadcasts the field update).
+    if g_server == nil then return end
+    if not g_SoilFertilityManager or not g_SoilFertilityManager.soilSystem then return end
+    g_SoilFertilityManager.soilSystem:scoutField(self.fieldId)
 end
 
 -- ========================================
