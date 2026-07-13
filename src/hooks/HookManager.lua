@@ -2495,7 +2495,11 @@ end
 --   for mowed-crop scenarios.
 --
 -- Area source:
---   spec_mower.workAreaParameters.lastStatsArea  - density-map pixels cut this tick
+--   spec_mower.workAreaParameters.lastChangedArea - density-map pixels where grass was
+--     ACTUALLY cut this tick (not lastStatsArea, which is the TOTAL scanned footprint and,
+--     with limitToField=false on manual mowing, includes already-cut ground and off-field
+--     grass past the field polygon - that over-reports worked hectares and floors N/P/K in
+--     one mowing session; #730, #706). changedArea naturally drops to 0 on repeat passes.
 --   MathUtil.areaToHa(pixels, g_currentMission:getFruitPixelsToSqm()) converts to hectares.
 --
 -- Depletion is area-based (not liter-based) via SoilFertilitySystem:onMow().
@@ -2523,8 +2527,10 @@ function HookManager:installMowerHook()
             local spec = mowerSelf.spec_mower
             if not spec or not spec.workAreaParameters then return end
 
-            -- lastStatsArea: density-map pixels processed this tick (same unit as Cutter's lastArea)
-            local area = spec.workAreaParameters.lastStatsArea or 0
+            -- lastChangedArea: pixels where grass was actually cut this tick (same unit as
+            -- Cutter's lastArea). NOT lastStatsArea (= total scanned footprint) - that counts
+            -- overlap and off-field grass and over-depletes meadows (#730, #706).
+            local area = spec.workAreaParameters.lastChangedArea or 0
             if area <= 0 then return end
 
             local fruitType = spec.workAreaParameters.lastInputFruitType

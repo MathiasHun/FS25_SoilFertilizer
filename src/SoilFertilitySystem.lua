@@ -602,7 +602,26 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
     local diffMult = SoilConstants.DIFFICULTY.MULTIPLIERS[self.settings.difficulty] or 1.0
     local haFactor = SoilConstants.MOWER_HA_FACTOR or 6.0
     local fieldAreaHa = (field.fieldArea and field.fieldArea > 0) and field.fieldArea or 1.0
-    local factor   = (areaHa / fieldAreaHa) * haFactor * diffMult
+
+    -- Per-day area cap (same rationale as onPlowing/onCultivation/onMulching): total
+    -- depletion from mowing cannot exceed one full-field-equivalent per day regardless of
+    -- pass count. Grass on a permanent meadow extends past the registered field polygon and
+    -- the header overlaps heavily, so without this clamp a single mowing session over-counts
+    -- the worked area several times over and floors N/P/K in one go (#730, #706). The mower
+    -- hook already feeds actually-cut area (lastChangedArea), so this cap is the backstop.
+    local today = (g_currentMission and g_currentMission.environment and
+                   g_currentMission.environment.currentDay) or 0
+    if not self._mowAreaToday then self._mowAreaToday = {} end
+    local entry = self._mowAreaToday[fieldId]
+    if not entry or entry.day ~= today then
+        entry = { day = today, used = 0 }
+        self._mowAreaToday[fieldId] = entry
+    end
+    local clampedArea = math.min(areaHa, math.max(0, fieldAreaHa - entry.used))
+    if clampedArea <= 0 then return end
+    entry.used = entry.used + clampedArea
+
+    local factor   = (clampedArea / fieldAreaHa) * haFactor * diffMult
 
     local limits = SoilConstants.NUTRIENT_LIMITS
     field.nitrogen   = math.max(limits.MIN, field.nitrogen   - rates.N * factor)
@@ -613,8 +632,9 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
     field.lastHarvest = (g_currentMission and g_currentMission.environment
                          and g_currentMission.environment.currentDay) or 0
 
-    SoilLogger.debug("Mow: Field %d, %s, %.5f ha - N:%.1f P:%.1f K:%.1f",
-        fieldId, fruitDesc.name, areaHa, field.nitrogen, field.phosphorus, field.potassium)
+    SoilLogger.debug("Mow: Field %d, %s, %.5f ha (cut %.5f, day-used %.3f/%.2f) - N:%.1f P:%.1f K:%.1f",
+        fieldId, fruitDesc.name, clampedArea, areaHa, entry.used, fieldAreaHa,
+        field.nitrogen, field.phosphorus, field.potassium)
 
     -- Broadcast field update to clients in multiplayer (throttled - mower fires every tick)
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo
