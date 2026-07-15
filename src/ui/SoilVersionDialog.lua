@@ -24,16 +24,17 @@ SoilVersionDialog.INSTANCE = nil
 -- Max 11 lines are visible in the box; if more exist we stop on a bullet boundary and add a "full changelog on GitHub" note.
 -- These are intentionally NOT translated, as they are always in English and often contain technical terms that don't translate well.
 SoilVersionDialog.CHANGELOG = {
-    "- Difficulty locks the sim-bypass tools: on Realistic and Hardcore the tuning editors",
-    "    and the field cheat tools (Set State, Set Disease, Recover, Drain) are greyed and locked",
-    "- Fertilizer Costs and Replenishment Rate lock too, so the sim can't be softened past Simple",
-    "- Every other toggle (fertility, nutrients, seasonal, rain, plowing, compaction, disease",
-    "    climate) stays editable at any difficulty - your game, your call",
-    "- The matching console commands follow the same rule",
-    "- Disease Difficulty is now shown on the Admin settings page too, next to Disease Climate",
-    "- Fixed: re-enabling the mod mid-game now fully restores the monitor, minimap layer and data",
-    "- Fixed: soil area now uses the arable field, not the whole farmland parcel, so a field that",
-    "    shares a parcel with a farmstead no longer skews compaction and per-hectare values (#719)"
+    "- See & Spray now works on every sprayer, with per-section shutoff on overlaps",
+    "    and field boundaries, plus variable-rate spot spraying (fertiliser too)",
+    "- Rotation foresight: the field-detail screen projects the next crop's yield",
+    "    before you plant, so you can plan the rotation from the soil you have",
+    "- Disease scouting: a field's named disease stays hidden on the Soil Monitor",
+    "    until you scout it - the monitor shows 'scout to identify' instead",
+    "- Fixed (#730): mowing meadows no longer drops N/P/K to the floor in one pass",
+    "- Fixed (#728): Vredo slurry spreader no longer treated as a chemical sprayer",
+    "- Fixed (#720): crop tuning edits now survive save and reload",
+    "- Fixed (#726): fungicide application no longer errors on some fields",
+    "- Dual and quad-tank sprayers now apply from all tanks correctly"
 }
 
 -- ── i18n helper ───────────────────────────────────────────
