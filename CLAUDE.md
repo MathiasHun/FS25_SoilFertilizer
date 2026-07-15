@@ -114,7 +114,7 @@ At these stages, Claude and Samantha MUST have explicit dialog:
 
 ## Project Overview
 
-**FS25_SoilFertilizer** is a Farming Simulator 25 mod that adds realistic soil nutrient management. It tracks Nitrogen, Phosphorus, Potassium, Organic Matter, and pH per field, with crop-specific depletion, fertilizer replenishment, weather effects, and seasonal cycles. Current version: **2.4.2.4**. Fully supports multiplayer with admin-only settings enforcement. 26-language localization via separate translation files in `translations/` (referenced from `modDesc.xml` via `filenamePrefix`).
+**FS25_SoilFertilizer** is a Farming Simulator 25 mod that adds realistic soil nutrient management. It tracks Nitrogen, Phosphorus, Potassium, Organic Matter, and pH per field, with crop-specific depletion, fertilizer replenishment, weather effects, and seasonal cycles. Current version: see `<version>` in `modDesc.xml` (do not trust a number written here; it drifts). Fully supports multiplayer with admin-only settings enforcement. 26-language localization in 27 translation files under `translations/` (referenced from `modDesc.xml` via `filenamePrefix`; Simplified Chinese ships twice, as `cs` and `fc`).
 
 ---
 
@@ -381,7 +381,7 @@ Type `soilfertility` in the developer console (`~` key) for the full list. Key c
 
 ## Localization
 
-All i18n strings live in per-language files under `translations/` (`translation_<code>.xml`), referenced from `modDesc.xml` via `<l10n filenamePrefix="translations/translation" />`. 27 languages: en, de, fr, nl, it, pl, es, ea, pt, br, ru, uk, cz, hu, ro, tr, fi, no, sv, da, kr, jp, ct, cs, fc, id, vi. Access via `g_i18n:getText("key_name")`.
+All i18n strings live in per-language files under `translations/` (`translation_<code>.xml`), referenced from `modDesc.xml` via `<l10n filenamePrefix="translations/translation" />`. 27 translation files (26 languages; Simplified Chinese ships as both `cs` and `fc`): en, de, fr, nl, it, pl, es, ea, pt, br, ru, uk, cz, hu, ro, tr, fi, no, sv, da, kr, jp, ct, cs, fc, id, vi. Access via `g_i18n:getText("key_name")`.
 
 > Chinese codes: `ct` = Traditional. Simplified ships as both `fc` (historical) and `cs` (player-confirmed to load in-game, added in #715 with a real translation). FS25 loads `translation_<suffix>.xml` by the client's language suffix, so shipping both covers whichever suffix a client uses. Put new Simplified work in `cs`; `fc` stays as a fallback.
 
@@ -432,7 +432,7 @@ Note: Soil & Fertilizer has zero Precision Farming integration. Do NOT add a `<t
 | # | File | What to add |
 |---|------|-------------|
 | 1 | `src/config/SettingsSchema.lua` | New entry: `{ id, type, default, uiId }` |
-| 2 | `modDesc.xml` `<l10n>` | Keys `<uiId>_short`, `<uiId>_label`, `<uiId>_desc` in all 26 languages |
+| 2 | `translations/translation_<code>.xml` | Keys `<uiId>_short`, `<uiId>_label`, `<uiId>_desc` in all 27 translation files (l10n moved out of modDesc.xml; it only holds the `filenamePrefix` reference) |
 | 3 | `src/ui/SoilSettingsPanel.lua` `CATEGORIES` | Add `settingId` to the correct category + section `items` list |
 | 4 | `src/ui/SoilSettingsPanel.lua` `SETTING_DESCS` | Map `settingId → "sf_desc_<id>"` l10n key |
 | 5 | `src/ui/SoilSettingsPanel.lua` `MULTI_OPTS` | If `type = "number"`, add option labels array |
@@ -449,11 +449,13 @@ Every release must include ALL of the following before tagging:
 |------|---------------|----------|
 | 1 | Bump `<version>` | `modDesc.xml` |
 | 2 | Bump version string | `README.md` - line with `**Version:**` |
-| 3 | Update startup dialog changelog bullets | `src/SoilFertilityManager.lua` - the hardcoded `What's new:` block in the `showNotifications` dialog |
-| 4 | Build zip (after version bump commit) | `bash build.sh --deploy` |
-| 5 | Copy zip into repo | `cp ../FS25_SoilFertilizer.zip ./FS25_SoilFertilizer.zip` |
+| 3 | Update startup dialog changelog bullets | `src/ui/SoilVersionDialog.lua` - the `SoilVersionDialog.CHANGELOG` table |
+| 4 | Run the self-test suite | `bash tools/test/run.sh` - must pass before building |
+| 5 | Build zip (after version bump commit) | `py build.py --deploy` |
 
-Steps 1–3 must all be committed before running the build so the zip contains the correct version and dialog text.
+Steps 1-3 must all be committed before running the build so the zip contains the correct version and dialog text.
+
+The zip is git-ignored and is NEVER committed. It ships only as a GitHub release asset (`gh release create ... FS25_SoilFertilizer.zip`). Release flow: build + deploy first, the user tests in-game, THEN PR + merge + release. KingMods releases are batched (manual ~24h review there), so prefer folding fixes into the existing pre-release of the current testing cycle over spinning a new version.
 
 ---
 
