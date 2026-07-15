@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Schädlinge" eh="2fed5101" />
     <e k="sf_hud_disease" v="Krankheit" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(geschützt)" eh="8273211e" />
     <e k="sf_hud_yield" v="Ertrag" eh="97345487" />
     <e k="sf_hud_estYield" v="Gesch. Ertrag" eh="32a4135e" />
@@ -313,6 +314,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Alle Bodensimulationen laufen auf dem Server. Clients erhalten beim Beitritt vollständige Felddaten und Einstellungen, mit automatischem Wiederholungsversuch, wenn der Server noch lädt. HUD-Anzeigeeinstellungen (Position, Thema, Größe) sind pro Spieler und werden nie mit dem Server synchronisiert." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Dedizierte Server" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Dedizierte Server führen die vollständige Simulation ohne HUD- oder GUI-Overhead aus - dies ist erwartet und normal. Verwenden Sie Konsolenbefehle (soilStatus, SoilSetDifficulty, SoilShowSettings usw.), um Einstellungen auf einem dedizierten Server zu verwalten und zu überprüfen." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Fruchtfolge" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Fruchtfolgenbonus und Monokultur-Ermüdung aktivieren/deaktivieren (Leguminosensequenzen stellen Stickstoff wieder her; aufeinanderfolgende Saisons mit derselben Frucht erhöhen die Verarmung)" eh="958b4212" />
@@ -467,6 +473,19 @@
     <e k="sf_detail_disease_label" v="Krankheitsdruck" eh="2b805cc9" />
     <e k="sf_detail_last_crop_label" v="Letzte Frucht" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="Fruchtfolgestatus" eh="83f7f522" />
+
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="[EN] Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="[EN] If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="[EN] Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="[EN] Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="[EN] OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="[EN] Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="[EN] x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="[EN] +N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="[EN] less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="[EN] more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="[EN] no change" eh="66d22a5d" />
 
     <e k="sf_treat_title" v="Behandlungsverordnung" eh="0ccc3ee5" />
     <e k="sf_treat_section_soil" v="Bodenverbesserung" eh="09e016e4" />
@@ -687,6 +706,8 @@
     <e k="sf_nav_smart_systems_desc"       v="Smart-Sensor-, See-&amp;-Spray- und Variable-Rate-Systeme konfigurieren" />
     <e k="sf_nav_tuning_label"            v="Konstanten-Tuning-Editor" />
     <e k="sf_nav_tuning_desc"             v="Simulationskonstanten feinabstimmen: Verarmungsraten, Stresswachstum, Start-Bodenwerte" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     <e k="sf_panel_hdr_smart_sensor_sys"   v="Smart-Sensor-System" />
     <e k="sf_panel_hdr_see_spray_sys"      v="See-&amp;-Spray-System" />
     <e k="sf_panel_hdr_var_rate_sys"       v="Variable-Rate-System" />
@@ -769,7 +790,7 @@
     <e k="sf_guide_p1_34" v="Smart-Sensor blockiert Sektionen ohne aktiven Bedarf." eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="See &amp; Spray zeigt Live-Druck pro Zelle im Fahrzeug." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="Variable Ausbringmenge passt die Rate automatisch an Defizite an." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="TASTENBELEGUNG" eh="07a9ae0d" />

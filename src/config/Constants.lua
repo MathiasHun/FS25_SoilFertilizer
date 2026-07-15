@@ -476,6 +476,47 @@ SoilConstants.FERTILIZER_PROFILES = {
     FUNGICIDE   = { diseaseReduction = 1.0 },
 }
 
+-- ========================================
+-- ORGANIC CERTIFICATION (per-field state layer over the OM substrate)
+-- ========================================
+-- A field moves conventional -> in_transition -> certified by being farmed with
+-- ONLY organic-approved inputs for a difficulty-scaled number of in-game days.
+-- Applying any synthetic input to a transitioning/certified field is a breach:
+-- full reset to conventional (Tison's call). Entry is explicit opt-in only.
+SoilConstants.ORGANIC = {
+    STATE_CONVENTIONAL = "conventional",
+    STATE_TRANSITION   = "in_transition",
+    STATE_CERTIFIED    = "certified",
+
+    -- Transition length in in-game days, indexed by difficulty (1 Simple / 2 Realistic / 3 Hardcore).
+    TRANSITION_DAYS = { 60, 120, 240 },
+
+    -- Yield factor vs an optimally synthetic-fertilised field. Organic amendments +
+    -- high OM offset part of this through the existing OM_YIELD pipeline, so these
+    -- are deliberately mild; the real reward is the market premium (other repo).
+    TRANSITION_YIELD = { 0.95, 0.90, 0.85 },
+    CERTIFIED_YIELD  = { 0.97, 0.92, 0.88 },
+
+    -- Synthetic input on a transitioning/certified field = full reset to conventional.
+    BREACH_FULL_RESET = true,
+
+    -- Inputs allowed under organic rules, keyed by fill type name. Anything applied
+    -- that is NOT in here counts as a synthetic breach. These are the OM-building
+    -- amendments plus the mined mineral conditioners (lime, gypsum). Biosolids are
+    -- intentionally excluded (sewage sludge is prohibited in organic certification).
+    APPROVED_INPUTS = {
+        MANURE            = true,
+        LIQUIDMANURE      = true,
+        DIGESTATE         = true,
+        COMPOST           = true,
+        CHICKEN_MANURE    = true,
+        PELLETIZED_MANURE = true,
+        LIME              = true,
+        LIQUIDLIME        = true,
+        GYPSUM            = true,
+    },
+}
+
 -- List of recognized fertilizer fill type names (for reference/iteration)
 SoilConstants.FERTILIZER_TYPES = {
     -- Base game

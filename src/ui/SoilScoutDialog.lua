@@ -120,7 +120,10 @@ function SoilScoutDialog:_populate()
 
     setText(self.scoutFieldId, tr("sf_detail_field_label", "Field #") .. tostring(self._fieldId))
 
-    local rep = sfm.soilSystem:getScoutReport(self._fieldId)
+    -- Opening the Scout dialog on a field IS the act of scouting it: reveal the disease
+    -- (flips the discovery gate) so the report shows the name + recommendation. Every
+    -- other surface stays gated until it too is scouted / reported / dog-flagged.
+    local rep = sfm.soilSystem:scoutField(self._fieldId)
     if not rep then return end
     if rep.enabled == false then
         setText(self.scoutDisease, tr("sf_scout_disabled", "Disease system disabled"))

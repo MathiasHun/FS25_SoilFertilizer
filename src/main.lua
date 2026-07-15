@@ -34,6 +34,7 @@ source(modDirectory .. "src/utils/Logger.lua")
 source(modDirectory .. "src/utils/AsyncRetryHandler.lua")
 source(modDirectory .. "src/utils/SoilUtils.lua")
 source(modDirectory .. "src/config/Constants.lua")
+source(modDirectory .. "src/config/SoilCropTuning.lua")
 source(modDirectory .. "src/config/SettingsSchema.lua")
 source(modDirectory .. "src/DiseaseSystem.lua")
 source(modDirectory .. "src/SoilCompactionModel.lua")
@@ -52,6 +53,7 @@ source(modDirectory .. "src/SoilSensorManager.lua")
 -- daily loop can consult FieldSentry_API. Backend only - no UI, no equation changes.
 source(modDirectory .. "src/FieldSentry.lua")
 source(modDirectory .. "src/SoilFertilitySystem.lua")
+source(modDirectory .. "src/OrganicCertification.lua")
 
 -- 3. Settings
 source(modDirectory .. "src/settings/SettingsManager.lua")
@@ -78,6 +80,7 @@ source(modDirectory .. "src/ui/SoilHelpDialog.lua")
 source(modDirectory .. "src/ui/SoilGuideDialog.lua")
 source(modDirectory .. "src/ui/SoilOverlayHelpDialog.lua")
 source(modDirectory .. "src/ui/SoilTuningPanel.lua")
+source(modDirectory .. "src/ui/SoilCropTuningPanel.lua")
 source(modDirectory .. "src/ui/SoilSettingsPanel.lua")
 source(modDirectory .. "src/SoilFertilityManager.lua")
 
@@ -87,6 +90,10 @@ source(modDirectory .. "src/network/NetworkEvents.lua")
 -- 6. Integrations
 source(modDirectory .. "src/integrations/SectionControlIntegration.lua")
 source(modDirectory .. "src/integrations/PrecisionFarmingBridge.lua")
+source(modDirectory .. "src/integrations/SoilSettingsHubBridge.lua")
+source(modDirectory .. "src/integrations/SoilStateLedgerBridge.lua")
+source(modDirectory .. "src/integrations/SoilMasterHUDBridge.lua")
+source(modDirectory .. "src/integrations/SoilNetworkSyncBridge.lua")
 
 -- Register our custom density map height types with the DMHM mod file list.
 -- DensityMapHeightManager:loadMapData iterates modDensityHeightMapTypeFilenames and
@@ -156,6 +163,35 @@ local function loadedMission(mission, node)
         return
     end
     sfm:onMissionLoaded()
+
+    -- FarmTablet System Settings app: mirror our settings into SettingsHub so the
+    -- tablet can list them. No-ops when SettingsHub is not installed.
+    if SoilSettingsHubBridge then
+        SoilSettingsHubBridge.register(sfm)
+    end
+
+    -- FS25_StateLedger: when present it becomes the load source of truth for soil
+    -- data (soilData.xml stays a safety copy). No-ops when StateLedger is absent.
+    -- Registered here so the ledger's deserialize has fired before onMissionStarted
+    -- runs loadSoilData.
+    if SoilStateLedgerBridge then
+        SoilStateLedgerBridge.register(sfm)
+    end
+
+    -- FS25_MasterHUD: when present it drives our whole HUD draw stack through its
+    -- single suspend-aware draw loop (our own FSBaseMission.draw hook stands down).
+    -- No-ops when MasterHUD is absent.
+    if SoilMasterHUDBridge then
+        SoilMasterHUDBridge.register(sfm)
+    end
+
+    -- FS25_NetworkSync: when present, ongoing per-field soil deltas fold into its
+    -- 1Hz whole-field-map batch (one registered module) instead of per-field
+    -- SoilFieldUpdateEvent broadcasts. SF's own event classes and chunked join
+    -- sync stay live as the fallback. No-ops when NetworkSync is absent.
+    if SoilNetworkSyncBridge then
+        SoilNetworkSyncBridge.register(sfm)
+    end
 
     -- TIP ON GROUND FIX: directly inject our solid fill types into the
     -- DensityMapHeightManager Lua tables so they can be tipped to the ground.
@@ -416,6 +452,17 @@ local function load(mission)
             FieldSentry_API.attachBridge(mission)
         end
 
+        -- Cross-mod harvest bus: lets the ecosystem diseased-food / feed model read a
+        -- field's disease severity + harvested liters AT harvest, before the harvest
+        -- clears the crop's disease state. Subscribe/unsubscribe route to the live
+        -- SoilFertilitySystem; the payload shape is defined in _emitHarvest.
+        if sfm.soilSystem then
+            mission.soilHarvestBus = {
+                subscribe   = function(name, fn) return sfm.soilSystem:subscribeHarvest(name, fn) end,
+                unsubscribe = function(name)     return sfm.soilSystem:unsubscribeHarvest(name) end,
+            }
+        end
+
         SoilLogger.info("Initialized in %s mode", disableGUI and "server/console" or "full")
     end
 end
@@ -429,6 +476,7 @@ local function unload()
         if g_currentMission then
             g_currentMission.soilFertilityManager = nil
             g_currentMission.fieldSentry = nil   -- #83 drop the cross-mod bridge
+            g_currentMission.soilHarvestBus = nil -- drop the harvest-event bridge
         end
     end
     -- Restore InputHelpDisplay.draw if we hooked it, so a session reload doesn't accumulate appends.
@@ -480,6 +528,15 @@ local function hookSaveLoadEvents()
                     if g_SoilFertilityManager.settings then
                         g_SoilFertilityManager.settings:save()
                     end
+                    -- Persist per-crop N/P/K tuning here too (#720), same reason as settings
+                    -- above. soilCropTuning.xml was only ever written on-change to the live
+                    -- savegame dir, so the tempsavegame copy step clobbered it and every crop
+                    -- edit (editor or hand-edited XML) reverted to defaults after save+reload -
+                    -- the "changing crop values has no effect" report. Writing it here rides the
+                    -- edits into tempsavegame -> real dir like soilData.xml and the settings.
+                    if g_SoilFertilityManager.cropTuning then
+                        g_SoilFertilityManager.cropTuning:save()
+                    end
                     if g_SoilFertilityManager.soilHUD then
                         g_SoilFertilityManager.soilHUD:saveLayout()
                     end
@@ -530,38 +587,16 @@ FSBaseMission.update = Utils.appendedFunction(FSBaseMission.update, function(mis
     end
 end)
 
--- Hook draw for HUD, settings panel, and minimap overlay
+-- Hook draw for HUD, settings panel, and minimap overlay.
+-- When FS25_MasterHUD is installed it owns our draw (its single suspend-aware loop
+-- calls SoilMasterHUDBridge.drawStack), so this hook stands down to avoid double
+-- drawing. When MasterHUD is absent this hook runs the exact same stack. The body
+-- lives in SoilMasterHUDBridge.drawStack so the two paths can never diverge.
 FSBaseMission.draw = Utils.appendedFunction(FSBaseMission.draw, function(mission)
     if not mission.isRunning then return end
-    if sfm and sfm.soilHUD then
-        sfm.soilHUD:draw()
-    end
-    if sfm and sfm.settingsPanel then
-        sfm.settingsPanel:draw()
-    end
-    if sfm and sfm.tuningPanel then
-        sfm.tuningPanel:draw()
-    end
-    if sfm and sfm.variableRatePanel then
-        sfm.variableRatePanel:draw()
-    end
-    if sfm and sfm.smartSensorPanel then
-        sfm.smartSensorPanel:draw()
-    end
-    if sfm and sfm.sprayerInfoPanel then
-        sfm.sprayerInfoPanel:draw()
-    end
-    if sfm and sfm.harvesterPanel then
-        sfm.harvesterPanel:draw()
-    end
-    -- Soil layer overlay on the HUD minimap (bottom-left corner).
-    -- Uses the ingameMap ref captured at map-load time (g_currentMission.ingameMap is nil in FS25).
-    if sfm and sfm.soilMapOverlay then
-        local ingameMap = sfm.soilMapOverlay.ingameMapRef
-            or (g_currentMission and g_currentMission.ingameMap)
-        if ingameMap then
-            sfm.soilMapOverlay:onDrawMinimap(ingameMap)
-        end
+    if SoilMasterHUDBridge and SoilMasterHUDBridge.active then return end
+    if SoilMasterHUDBridge then
+        SoilMasterHUDBridge.drawStack()
     end
 end)
 
@@ -616,6 +651,12 @@ function soilMouseHandler:mouseEvent(posX, posY, isDown, isUp, button, eventUsed
         eventUsed = consumed or eventUsed
         return eventUsed
     end
+    -- Crop tuning panel eats input when open (same exclusivity as the tuning panel)
+    if sfm and sfm.cropTuningPanel and sfm.cropTuningPanel:isOpen() then
+        local consumed = sfm.cropTuningPanel:onMouseEvent(posX, posY, isDown, isUp, button, eventUsed)
+        eventUsed = consumed or eventUsed
+        return eventUsed
+    end
     -- Settings panel eats input first when open
     if sfm and sfm.settingsPanel and sfm.settingsPanel:isOpen() then
         local consumed = sfm.settingsPanel:onMouseEvent(posX, posY, isDown, isUp, button, eventUsed)
@@ -661,7 +702,6 @@ function soilfertility()
         print("SoilSaveData - Force save soil data")
         print("SoilRerollFields - Re-roll starting soil for all fields (new regional variation)")
         print("SoilRerollUnownedFields - Re-roll starting soil for fields you don't own (keeps your own)")
-        print("SoilPFDump - Dump Precision Farming API (for integration diagnostics)")
         print("")
         print("NOTE: In multiplayer, only server admins can change settings")
         print("================================")
@@ -677,7 +717,7 @@ function soilStatus()
         local isClient = g_client ~= nil
 
         local pfBridge = g_SoilFertilityManager.pfBridge
-        local pfStatus = (pfBridge and pfBridge.isActive) and "ACTIVE (N/pH deferred to PF)" or "not detected"
+        local pfStatus = (pfBridge and pfBridge.isActive) and "ACTIVE - SF disabled" or "not detected"
         print(string.format(
             "=== Soil & Fertilizer Status ===\n" ..
             "Mode: %s\n" ..
@@ -755,22 +795,10 @@ function SoilSprayerDebug()
         tostring(spec._soilEffectsActive), tostring(spec._soilManagedFillType)))
 end
 
--- Dump Precision Farming bridge status and API discovery to the log.
-function SoilPFDump()
-    if g_SoilFertilityManager and g_SoilFertilityManager.pfBridge then
-        g_SoilFertilityManager.pfBridge:dumpApi()
-        return "PF dump written to log (check console output)"
-    end
-    -- Bridge created in SoilFertilityManager.new() so this only happens before mission load.
-    print("[SoilPFDump] SF bridge not yet initialised - load a savegame first, then run SoilPFDump")
-    return "Bridge not ready - load savegame first"
-end
-
 -- Expose global console functions
 getfenv(0)["soilfertility"] = soilfertility
 getfenv(0)["soilStatus"] = soilStatus
 getfenv(0)["SoilSprayerDebug"] = SoilSprayerDebug
-getfenv(0)["SoilPFDump"] = SoilPFDump
 getfenv(0)["soilEnable"] = function()
     if g_SoilFertilityManager and g_SoilFertilityManager.settingsGUI then
         return g_SoilFertilityManager.settingsGUI:consoleCommandSoilEnable()

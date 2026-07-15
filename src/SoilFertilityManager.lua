@@ -25,7 +25,7 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     self.disableGUI = disableGUI or false
     self.lastSeenVersion = ""
 
-    -- PF bridge (created early so SoilPFDump works before deferred init fires)
+    -- PF detector (holds detection state; initialize() runs in the deferred init phase)
     self.pfBridge = PrecisionFarmingBridge and PrecisionFarmingBridge:new() or nil
     self.hasPrecisionFarming = false
 
@@ -51,6 +51,9 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     end
     self.soilSystem = SoilFertilitySystem.new(self.settings)
 
+    -- Organic certification: per-field state layer over the soil substrate.
+    self.organic = OrganicCertification and OrganicCertification.new(self.soilSystem) or nil
+
     -- Sprayer rate manager (always active - not GUI-dependent)
     self.sprayerRateManager = SprayerRateManager.new()
     self._autoRateTimer = 0  -- throttle timer for auto-rate updates
@@ -73,6 +76,9 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
     -- Console commands
     self.settingsGUI = SoilSettingsGUI.new()
     self.settingsGUI:registerConsoleCommands()
+    if self.organic then
+        self.organic:registerConsoleCommands()
+    end
 
     -- HUD (client only)
     if shouldInitGUI then
@@ -153,6 +159,15 @@ function SoilFertilityManager.new(mission, modDirectory, modName, disableGUI)
         if SoilTuningPanel then
             self.tuningPanel = SoilTuningPanel.new(self.settings)
             SoilLogger.info("Tuning panel created")
+        end
+
+        -- Crop Tuning Editor (per-crop N/P/K, issue #717) + its data layer
+        if SoilCropTuning then
+            self.cropTuning = SoilCropTuning.new(self.settings)
+        end
+        if SoilCropTuningPanel then
+            self.cropTuningPanel = SoilCropTuningPanel.new(self.settings, self.cropTuning)
+            SoilLogger.info("Crop tuning panel created")
         end
 
         -- Variable Rate panel (System 3)
@@ -603,6 +618,10 @@ function SoilFertilityManager:onMissionLoaded()
             self.tuningPanel:initialize()
         end
 
+        if self.cropTuningPanel then
+            self.cropTuningPanel:initialize()
+        end
+
         if self.variableRatePanel then
             self.variableRatePanel:initialize()
         end
@@ -622,6 +641,43 @@ function SoilFertilityManager:onMissionLoaded()
         self.settings.enabled = false
         self.settings:save()
     end
+end
+
+--- Bring the live soil system fully online: sim core, minimap heatmap, per-crop tuning,
+--- saved field data, and derived zone/GRLE state. onMissionStarted calls this once fields
+--- are populated; consoleCommandSoilEnable calls it too so re-enabling mid-session restores
+--- the monitor AND the minimap layer AND field data - not just the sim core. That gap is why
+--- a save that loaded with the mod disabled stayed half-dead after SoilEnable (minimap layer
+--- and field data never re-initialized). Each subsystem rebuilds its own state, so a repeat
+--- call is safe. Guarded so a subsystem error can't propagate (notably it must NOT bubble up
+--- to the load() catch that persists enabled=false).
+function SoilFertilityManager:activateSoilSystem()
+    if not self.soilSystem then return end
+
+    local ok, err = pcall(function()
+        self.soilSystem:initialize()
+
+        -- DMV minimap heatmap - must init AFTER soilSystem so layerSystem is ready
+        if self.soilMinimapLayer then
+            self.soilMinimapLayer:initialize()
+        end
+
+        -- Apply the player-editable per-crop N/P/K overrides (#717) before loading field
+        -- data, so the sim sees tuned rates from the first tick.
+        if self.cropTuning then
+            self.cropTuning:load()
+        end
+
+        self:loadSoilData()
+
+        self.soilSystem:prePopulateAllZoneData()
+        self:seedGRLEFromFieldData()
+    end)
+
+    if not ok then
+        SoilLogger.error("activateSoilSystem failed: %s", tostring(err))
+    end
+    return ok
 end
 
 --- Called when mission actually starts (Mission00.onStartMission).
@@ -684,17 +740,11 @@ function SoilFertilityManager:onMissionStarted()
         end
 
         SoilLogger.info("Initializing soil system (fields guaranteed populated)...")
-        self.soilSystem:initialize()
+        self:activateSoilSystem()
 
-        -- DMV minimap heatmap - must init AFTER soilSystem so layerSystem is ready
-        if self.soilMinimapLayer then
-            self.soilMinimapLayer:initialize()
-        end
-
-        self:loadSoilData()
-
-        -- Version "What's new" dialog - queued AFTER loadSoilData so the comparison uses the
-        -- SAVED lastSeenVersion. It used to be queued before the load, which always compared
+        -- Version "What's new" dialog - queued AFTER activateSoilSystem (which runs
+        -- loadSoilData) so the comparison uses the SAVED lastSeenVersion. It used to be
+        -- queued before the load, which always compared
         -- against the "" default, so the dialog reappeared on every load and the
         -- "Don't show again" button never stuck (#665).
         if SoilVersionDialog then
@@ -707,9 +757,6 @@ function SoilFertilityManager:onMissionStarted()
                 self._pendingVersionDialogDelay = 3000
             end
         end
-
-        self.soilSystem:prePopulateAllZoneData()
-        self:seedGRLEFromFieldData()
     end)
 
     if not ok then
@@ -851,33 +898,49 @@ end
 -- tractor towing a spreader), scans the attacher-joint implement tree.
 -- Mirrors the same logic in SoilHUD:getCurrentSprayer so both the HUD panel
 -- and the key callbacks always agree on which vehicle the rate belongs to.
+-- Shared helper: recursively scan the attacher-joint tree for a fertilizer applicator implement.
+-- Used by both getApplicatorVehicle and the else-branch below.
+local function scanImpls(root)
+    if not root then return nil end
+    local ok, spec = pcall(function() return root.spec_attacherJoints end)
+    if not ok or not spec then return nil end
+    local ok2, impls = pcall(function() return spec.attachedImplements end)
+    if not ok2 or not impls then return nil end
+    for _, impl in pairs(impls) do
+        local obj = impl.object
+        if obj then
+            if SoilFertilityManager.isFertilizerApplicator(obj) then
+                return obj
+            end
+            local found = scanImpls(obj)
+            if found then return found end
+        end
+    end
+    return nil
+end
+
+-- Returns the fertilizer applicator relevant for rate adjustment.
+-- Checks the directly driven vehicle first; if that is not an applicator (e.g. a
+-- tractor towing a spreader), scans the attacher-joint implement tree.
+-- Mirrors the same logic in SoilHUD:getCurrentSprayer so both the HUD panel
+-- and the key callbacks always agree on which vehicle the rate belongs to.
+-- Uses scanImpls as a shared recursive helper (hoisted above).
 local function getApplicatorVehicle()
     local v = getPlayerVehicle()
     if not v then return nil end
 
     -- Direct (self-propelled): liquid sprayer, air seeder, etc.
     if SoilFertilityManager.isFertilizerApplicator(v) then
-        return v
+        -- ALSO scan for an attached implement that carries the actual product
+        -- (e.g. the Vredo DLC VT7138 where the chassis has spec_sprayer but
+        --  the slurry tank + boom is an implement sub-entity). Prefer the
+        --  implement when one exists so fill-type resolution reads the correct
+        --  physical tank (LIQUIDMANURE, not LIQUIDFERTILIZER, #728).
+        local implement = scanImpls(v)
+        return implement or v
     end
 
     -- Pulled implement: walk the attacher-joint tree
-    local function scanImpls(root)
-        local ok, spec = pcall(function() return root.spec_attacherJoints end)
-        if not ok or not spec then return nil end
-        local ok2, impls = pcall(function() return spec.attachedImplements end)
-        if not ok2 or not impls then return nil end
-        for _, impl in pairs(impls) do
-            local obj = impl.object
-            if obj then
-                if SoilFertilityManager.isFertilizerApplicator(obj) then
-                    return obj
-                end
-                local found = scanImpls(obj)
-                if found then return found end
-            end
-        end
-        return nil
-    end
     return scanImpls(v)
 end
 
@@ -959,7 +1022,9 @@ function SoilFertilityManager:onScoutInput()
         return
     end
 
-    local rep = self.soilSystem:getScoutReport(fieldId)
+    -- The Scout hotkey is a deliberate scout: reveal the field's disease so the flash
+    -- message and the Scout dialog it opens both show the identified infection.
+    local rep = self.soilSystem:scoutField(fieldId)
     if not rep or rep.enabled == false then return end
 
     local function disName(id)
@@ -1195,6 +1260,21 @@ function SoilFertilityManager:loadSoilData()
         return
     end
 
+    -- StateLedger (bedrock): when installed and it delivered an actual soil block,
+    -- it is the load source of truth. On a new save, or the first load after
+    -- installing the ledger onto an existing save, it delivers nothing, so we fall
+    -- through and import the existing soilData.xml (which the ledger then carries
+    -- forward). soilData.xml is still written every save as a safety copy.
+    if SoilStateLedgerBridge and SoilStateLedgerBridge.hasLedgerState() then
+        SoilStateLedgerBridge.applyState(self)
+        local fieldCount = 0
+        if self.soilSystem.fieldData then
+            for _ in pairs(self.soilSystem.fieldData) do fieldCount = fieldCount + 1 end
+        end
+        SoilLogger.info("Soil data loaded from StateLedger (%d fields)", fieldCount)
+        return
+    end
+
     local savegamePath = g_currentMission.missionInfo.savegameDirectory
     if not savegamePath then
         SoilLogger.warning("loadSoilData: savegameDirectory not set yet (new career or early load) - starting with defaults")
@@ -1273,22 +1353,25 @@ end
 ---@param dt number Delta time in milliseconds
 function SoilFertilityManager:update(dt)
     -- Deferred fill type registration retry (dedicated server timing fix: #431)
-    -- On dedi servers, fill types may not be in g_fillTypeManager at loadMission00Finished.
-    -- Retry for up to 3 seconds (90 frames) until they appear.
-    if self.soilSystem and self.soilSystem.hookManager
-       and self.soilSystem.hookManager._sprayTypesComplete == false then
+    -- Also re-patches ALL vehicles every frame until all custom types are resolvable,
+    -- so modded maps that shift fill-type indices (e.g. Carpathian Countryside, #727)
+    -- are handled without depending on _sprayTypesComplete.
+    if self.soilSystem and self.soilSystem.hookManager then
         self._deferredRetryCount = (self._deferredRetryCount or 0) + 1
-        if self._deferredRetryCount <= 90 then
+        if self._deferredRetryCount <= 120 then
             local hm = self.soilSystem.hookManager
             hm:registerCustomSprayTypes()
+            hm:reapplyFillUnitPatch()
+            hm:reapplyEffectTypeRemap()
+            hm:patchExistingSilos()
             if hm._sprayTypesComplete then
-                hm:reapplyFillUnitPatch()
-                hm:reapplyEffectTypeRemap()
-                hm:patchExistingSilos()  -- #605: bulk bins loaded before fill types resolved
-                SoilLogger.info("[DeferredInit] Fill type registration succeeded on retry #%d", self._deferredRetryCount)
+                if self._deferredRetryCount > 1 then
+                    SoilLogger.info("[DeferredInit] Fill-type re-patch complete on retry #%d", self._deferredRetryCount)
+                end
+                self._deferredRetryCount = 121  -- stop retrying once complete
             end
-        elseif self._deferredRetryCount == 91 then
-            SoilLogger.warning("[DeferredInit] Fill types still unavailable after 90 retries - dedicated server may have incomplete fill type loading")
+        elseif self._deferredRetryCount == 122 then
+            SoilLogger.warning("[DeferredInit] Fill types still unavailable after 120 retries - dedicated server or modded map may have incomplete fill type loading")
             self.soilSystem.hookManager._sprayTypesComplete = true  -- stop retrying
         end
     end
@@ -1370,6 +1453,10 @@ function SoilFertilityManager:update(dt)
     -- Tuning panel camera-lock and cursor keepalive
     if self.tuningPanel then
         self.tuningPanel:update()
+    end
+
+    if self.cropTuningPanel then
+        self.cropTuningPanel:update()
     end
 
     -- Compaction: periodic check for local player's heavy vehicle driving over fields.
@@ -1681,12 +1768,14 @@ function SoilFertilityManager:calculateAutoRateIndex(fieldData, fillType)
 end
 
 --- Cleanup on mod unload
---- Saves soil data and uninstalls hooks
+--- Uninstalls hooks and flushes logs. Does NOT save soil data on purpose: persistence
+--- goes through the FSCareerMissionInfo:saveToXMLFile hook only, so soilData.xml stays in
+--- sync with the actual savegame. Writing here would persist unsaved soil changes on a
+--- quit-without-save (the #730 follow-up HStein72 reported). Console force-saves and the
+--- save hook remain the only write paths for gameplay soil state.
 function SoilFertilityManager:delete()
     -- Flush any buffered debug messages to file before shutdown
     SoilLogger.flushDebugLog()
-    -- Save soil data before shutdown
-    self:saveSoilData()
 
     -- Restore PlayerInputComponent hook if we installed one
     if self._inputHookOriginal and PlayerInputComponent then
@@ -1845,6 +1934,11 @@ function SoilFertilityManager:delete()
     if self.tuningPanel then
         self.tuningPanel:delete()
         self.tuningPanel = nil
+    end
+
+    if self.cropTuningPanel then
+        self.cropTuningPanel:delete()
+        self.cropTuningPanel = nil
     end
 
     if self.settingsPanel then

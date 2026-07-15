@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Sâu bệnh" eh="2fed5101" />
     <e k="sf_hud_disease" v="Bệnh hại" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(được bảo vệ)" eh="8273211e" />
     <e k="sf_hud_yield" v="Sản lượng" eh="97345487" />
     <e k="sf_hud_estYield" v="Sản lượng dự tính" eh="32a4135e" />
@@ -313,6 +314,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Mọi mô phỏng đất chạy trên máy chủ. Người chơi nhận dữ liệu khi tham gia. Các cài đặt hiển thị HUD là riêng tư cho từng người và không bao giờ đồng bộ lên máy chủ." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Máy chủ chuyên dụng" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Máy chủ chuyên dụng chạy mô phỏng đầy đủ mà không có HUD/GUI - đây là điều bình thường. Dùng lệnh console (soilStatus, SoilSetDifficulty...) để quản lý trên máy chủ chuyên dụng." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="Luân canh cây trồng" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="Bật/tắt thưởng luân canh và mệt mỏi do độc canh (trồng họ đậu giúp hồi đạm; trồng liên tiếp cùng một loại cây làm tăng sự cạn kiệt)" eh="958b4212" />
@@ -413,7 +419,7 @@
     <e k="sf_help_k" v="K (Kali) - Bón Kali. Quan trọng cho bộ rễ." eh="e0217634" />
     <e k="sf_help_om" v="OM (Hữu cơ) - Tăng chậm. Cày vùi phân chuồng/compost." eh="a4e29617" />
     <e k="sf_help_soil_header" v="HÓA HỌC ĐẤT" eh="19c67ff5" />
-    <e k="sf_help_ph" v="pH 6.5-7.0 = Lý tưởng. < 6.5 bón Vôi. > 7.5 bón Thạch cao." eh="8929304d" />
+    <e k="sf_help_ph" v="pH 6.5-7.0 = Lý tưởng. &lt; 6.5 bón Vôi. > 7.5 bón Thạch cao." eh="8929304d" />
     <e k="sf_help_pressure_header" v="ÁP LỰC MÙA VỤ" eh="132b0f66" />
     <e k="sf_help_weed" v="Cỏ dại   > 20% - Dùng thuốc diệt cỏ." eh="c8d890df" />
     <e k="sf_help_pest" v="Sâu bệnh  > 20% - Dùng thuốc trừ sâu." eh="f4932a05" />
@@ -468,6 +474,19 @@
     <e k="sf_detail_last_crop_label" v="Vụ trước" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="Trạng thái luân canh" eh="83f7f522" />
 
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="[EN] Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="[EN] If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="[EN] Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="[EN] Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="[EN] OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="[EN] Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="[EN] x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="[EN] +N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="[EN] less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="[EN] more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="[EN] no change" eh="66d22a5d" />
+
     <e k="sf_treat_title" v="Kê đơn xử lý" eh="0ccc3ee5" />
     <e k="sf_treat_section_soil" v="Cải tạo đất" eh="09e016e4" />
     <e k="sf_treat_section_fert" v="Bón dinh dưỡng" eh="76521e8e" />
@@ -513,7 +532,7 @@
 
     <e k="sf_notify_welcome" v="Mod Đất &amp; Phân bón Hoạt động | Shift+O để mở cài đặt | Gõ 'soilfertility' để xem lệnh" eh="d97e4139" />
     <e k="sf_startup_dialog_version" v="Có gì mới trong phiên bản này:" eh="0b25f5c2" />
-    <e k="sf_startup_dialog_footer" v="Cảm ơn bạn đã sử dụng mod của mình <3" eh="0f08d735" />
+    <e k="sf_startup_dialog_footer" v="Cảm ơn bạn đã sử dụng mod của mình &lt;3" eh="0f08d735" />
     <e k="sf_startup_dialog_footer2" v="Tìm thấy lỗi? Hãy báo cáo trên GitHub!" eh="728e2cf3" />
     <e k="sf_startup_dialog_footer3" v="Chúc bạn canh tác vui vẻ và đừng quên:" eh="aa38e511" />
     <e k="sf_startup_dialog_footer4" v="Đất của bạn nhớ tất cả mọi thứ..." eh="1a3e5c35" />
@@ -687,6 +706,8 @@
     <e k="sf_nav_smart_systems_desc"       v="Configure Smart Sensor, See &amp; Spray and Variable Rate systems" />
     <e k="sf_nav_tuning_label"            v="Constants Tuning Editor" />
     <e k="sf_nav_tuning_desc"             v="Fine-tune simulation constants: depletion rates, stress growth, starting soil values" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     <e k="sf_panel_hdr_smart_sensor_sys"   v="Smart Sensor System" />
     <e k="sf_panel_hdr_see_spray_sys"      v="See &amp; Spray System" />
     <e k="sf_panel_hdr_var_rate_sys"       v="Variable Rate System" />
@@ -768,7 +789,7 @@
     <e k="sf_guide_p1_34" v="[EN] Smart Sensor Blocks sections with no active need." eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="[EN] See &amp; Spray  Live per-cell pressure in the vehicle." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="[EN] Variable Rate Auto-adjusts boom rate from deficits." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="[EN] KEYBINDINGS" eh="07a9ae0d" />

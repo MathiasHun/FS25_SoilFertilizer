@@ -245,6 +245,7 @@ local ADMIN_SECTIONS = {
             { stype = "action", id = "nav_vehicle_tools" },
             { stype = "action", id = "nav_smart_systems" },
             { stype = "action", id = "nav_tuning" },
+            { stype = "action", id = "nav_crop_tuning" },
         },
     },
     {
@@ -267,6 +268,7 @@ local ADMIN_SECTIONS = {
             { stype = "setting", id = "rainEffects" },
             { stype = "setting", id = "plowingBonus" },
             { stype = "setting", id = "diseaseMoisture" },
+            { stype = "setting", id = "diseaseDifficulty" },
             { stype = "setting", id = "compactionEnabled" },
         },
     },
@@ -321,6 +323,31 @@ local SMART_SYSTEMS_SECTIONS = {
         },
     },
 }
+
+-- Rows that are player "bypass" tools: greyed with a "Locked - <difficulty>" note and
+-- inert on any difficulty above Simple (see Settings:allowsBypassTools). The draw loop,
+-- the click handler, and the control widgets all read SIMPLE_ONLY_IDS.
+--   * ACTION rows (editors + field cheats) are listed explicitly below - they are not
+--     schema settings, so this is their only home.
+--   * SETTING rows come from the schema's `simpleOnly` flag, the single source of truth
+--     that Settings:enforceBypassLock() also uses, so the soften-toggle list is never
+--     duplicated or allowed to drift between the schema and the panel.
+-- Intentionally NOT locked: the Difficulty selector itself, master Enable, Debug,
+-- Notifications, Save/Reset, the read-only Field Info/Forecast/List actions, and the
+-- Smart Systems (precision-ag QoL, not a way to soften the soil sim).
+local SIMPLE_ONLY_ACTION_IDS = {
+    nav_tuning              = true,  -- Constants Tuning Editor
+    nav_crop_tuning         = true,  -- Crop Tuning Editor (#717)
+    admin_field_set_state   = true,
+    admin_field_set_disease = true,
+    admin_field_recover     = true,
+    admin_drain             = true,
+}
+local SIMPLE_ONLY_IDS = {}
+for id in pairs(SIMPLE_ONLY_ACTION_IDS) do SIMPLE_ONLY_IDS[id] = true end
+for _, def in ipairs(SettingsSchema.definitions) do
+    if def.simpleOnly then SIMPLE_ONLY_IDS[def.id] = true end
+end
 
 -- ── Constructor ───────────────────────────────────────────
 function SoilSettingsPanel.new(settings)
@@ -1219,13 +1246,18 @@ function SoilSettingsPanel:drawAdminPage()
                 if item.stype == "setting" then
                     -- Reuse existing setting row drawing
                     local def = SettingsSchema.byId[item.id]
-                    local locked = not def.localOnly and not isAdmin
+                    local diffLocked = SIMPLE_ONLY_IDS[item.id] and self.settings and not self.settings:allowsBypassTools()
+                    local locked = (not def.localOnly and not isAdmin) or diffLocked
                     local lc = locked and C.lock_text or C.white
                     local dc = locked and {C.lock_text[1]*0.7, C.lock_text[2]*0.7, C.lock_text[3]*0.7, 1} or C.dim
                     if locked then self:drawRect(CX, itemY, 0.003, rh, {0.88, 0.60, 0.18, 0.45}) end
                     local iLabel = tr(def.uiId .. "_short") or item.id
                     local iDescKey = SETTING_DESCS[item.id]
                     local iDesc = (iDescKey and tr(iDescKey)) or ""
+                    -- Difficulty lock replaces the description line with the reason.
+                    if diffLocked then
+                        iDesc = string.format("Locked - %s difficulty", self.settings:getDifficultyName())
+                    end
                     self:drawText(CX + (locked and 0.010 or 0.008), itemY + rh * 0.55, TS_BODY, iLabel, lc, RenderText.ALIGN_LEFT, not locked)
                     self:drawText(CX + (locked and 0.010 or 0.008), itemY + rh * 0.15, TS_TINY, iDesc, dc, RenderText.ALIGN_LEFT, false)
                     local ctrlX = CX + CW - 0.012
@@ -1238,29 +1270,50 @@ function SoilSettingsPanel:drawAdminPage()
                 else
                     -- Action / danger button row
                     local isDanger = (item.stype == "danger")
+                    local diffLocked = SIMPLE_ONLY_IDS[item.id] and self.settings and not self.settings:allowsBypassTools()
                     local btnW = 0.130
                     local btnH = rh * 0.72
                     local btnX = CX + CW - btnW - 0.012
                     local btnY = itemY + (rh - btnH) * 0.5
-                    local hov  = self:hitTest(btnX, btnY, btnW, btnH, self.mouseX, self.mouseY)
+                    local hov  = (not diffLocked) and self:hitTest(btnX, btnY, btnW, btnH, self.mouseX, self.mouseY)
 
                     local aLabel = tr("sf_" .. item.id .. "_label") or item.id
                     local aDesc  = tr("sf_" .. item.id .. "_desc") or ""
-                    self:drawText(CX + 0.008, itemY + rh * 0.55, TS_BODY, aLabel, C.white, RenderText.ALIGN_LEFT, true)
-                    self:drawText(CX + 0.008, itemY + rh * 0.15, TS_TINY, aDesc, C.dim,   RenderText.ALIGN_LEFT, false)
+                    if diffLocked then
+                        aDesc = string.format("Locked - %s difficulty", self.settings:getDifficultyName())
+                    end
+                    local labelCol = diffLocked and C.lock_text or C.white
+                    local descCol  = diffLocked
+                        and {C.lock_text[1]*0.7, C.lock_text[2]*0.7, C.lock_text[3]*0.7, 1} or C.dim
+                    if diffLocked then self:drawRect(CX, itemY, 0.003, rh, {0.88, 0.60, 0.18, 0.45}) end
+                    self:drawText(CX + (diffLocked and 0.010 or 0.008), itemY + rh * 0.55, TS_BODY, aLabel, labelCol, RenderText.ALIGN_LEFT, not diffLocked)
+                    self:drawText(CX + (diffLocked and 0.010 or 0.008), itemY + rh * 0.15, TS_TINY, aDesc, descCol, RenderText.ALIGN_LEFT, false)
 
-                    local bgCol = isDanger
-                        and (hov and {0.65, 0.10, 0.10, 0.95} or {0.30, 0.06, 0.06, 0.85})
-                        or  (hov and {0.10, 0.35, 0.15, 0.95} or {0.08, 0.18, 0.10, 0.85})
-                    local acCol = isDanger and ADMIN_ACCENT or C.green
+                    local bgCol, acCol, btnTxtCol, btnTxt
+                    if diffLocked then
+                        -- Greyed, non-interactive "LOCKED" pill with the orange lock accent.
+                        bgCol     = {0.14, 0.14, 0.16, 0.80}
+                        acCol     = {0.88, 0.60, 0.18, 0.45}
+                        btnTxtCol = C.lock_text
+                        btnTxt    = "LOCKED"
+                    else
+                        bgCol = isDanger
+                            and (hov and {0.65, 0.10, 0.10, 0.95} or {0.30, 0.06, 0.06, 0.85})
+                            or  (hov and {0.10, 0.35, 0.15, 0.95} or {0.08, 0.18, 0.10, 0.85})
+                        acCol     = isDanger and ADMIN_ACCENT or C.green
+                        btnTxtCol = hov and {1,1,1,1} or {0.75,0.75,0.75,1}
+                        btnTxt    = isDanger and "!! " .. aLabel or ">  " .. aLabel
+                    end
                     self:drawRect(btnX, btnY, btnW, btnH, bgCol)
                     self:drawRect(btnX, btnY, 0.002, btnH, acCol)
                     self:drawText(btnX + btnW * 0.5, btnY + btnH * 0.20, TS_TINY,
-                        isDanger and "!! " .. aLabel or ">  " .. aLabel,
-                        hov and {1,1,1,1} or {0.75,0.75,0.75,1},
-                        RenderText.ALIGN_CENTER, isDanger)
-                    self:registerClick("admin_action_" .. item.id, btnX, btnY, btnW, btnH,
-                        { actionId = item.id, gui = gui })
+                        btnTxt, btnTxtCol, RenderText.ALIGN_CENTER, isDanger and not diffLocked)
+                    -- No click registration when locked - the button is inert, mirroring
+                    -- how drawToggleControl/drawMultiControl skip clicks when locked.
+                    if not diffLocked then
+                        self:registerClick("admin_action_" .. item.id, btnX, btnY, btnW, btnH,
+                            { actionId = item.id, gui = gui })
+                    end
                 end
 
                 self:drawRect(CX, itemY, CW, 0.0005, C.divider, 0.35)
@@ -1721,7 +1774,16 @@ function SoilSettingsPanel:handleClick(id, data)
         local gui = g_SoilFertilityManager and g_SoilFertilityManager.settingsGUI
         local actionId = data and data.actionId
         local msg = "Action failed."
-        
+
+        -- Bypass tools (sim-rescaling editors + field cheat/test utilities) are Simple
+        -- difficulty only. One gate for every such action - the set lives in
+        -- SIMPLE_ONLY_IDS, the difficulty predicate in Settings:allowsBypassTools().
+        if SIMPLE_ONLY_IDS[actionId] and self.settings and not self.settings:allowsBypassTools() then
+            adminShowMsg(self, string.format("Locked on %s difficulty. Available on Simple only.",
+                self.settings:getDifficultyName()))
+            return
+        end
+
         -- Handle navigation actions first
         if actionId == "nav_field_tools" then
             self.page = PAGE_FIELD_TOOLS
@@ -1736,10 +1798,18 @@ function SoilSettingsPanel:handleClick(id, data)
             self.pageScrollPx = 0
             return
         elseif actionId == "nav_tuning" then
-            -- Open Constants Tuning Editor (separate panel)
+            -- Open Constants Tuning Editor (separate panel). Bypass tool - the
+            -- SIMPLE_ONLY_IDS gate above already blocked this on Realistic/Hardcore.
             if g_SoilFertilityManager and g_SoilFertilityManager.tuningPanel then
                 self:close()
                 g_SoilFertilityManager.tuningPanel:open()
+            end
+            return
+        elseif actionId == "nav_crop_tuning" then
+            -- Open Crop Tuning Editor (per-crop N/P/K, #717). Bypass tool - gated above.
+            if g_SoilFertilityManager and g_SoilFertilityManager.cropTuningPanel then
+                self:close()
+                g_SoilFertilityManager.cropTuningPanel:open()
             end
             return
         end

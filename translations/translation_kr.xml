@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="해충" eh="2fed5101" />
     <e k="sf_hud_disease" v="병해" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(보호됨)" eh="8273211e" />
     <e k="sf_hud_yield" v="수확량" eh="97345487" />
     <e k="sf_hud_estYield" v="예상 수확량" eh="32a4135e" />
@@ -325,6 +326,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="모든 토양 시뮬레이션은 서버에서 실행됩니다. 클라이언트는 접속 시 모든 필드 데이터와 설정을 받으며, 서버가 로딩 중인 경우 자동으로 재시도합니다. HUD 표시 설정은 플레이어별로 유지되며 서버와 동기화되지 않습니다." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="전용 서버" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="전용 서버는 HUD나 GUI 오버헤드 없이 전체 시뮬레이션을 실행합니다. 콘솔 명령(soilStatus, SoilSetDifficulty, SoilShowSettings 등)을 사용하여 전용 서버의 설정을 관리하고 확인할 수 있습니다." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
     <e k="sf_crop_rotation_short" v="작물 순환" eh="def2c162" />
     <e k="sf_crop_rotation_long" v="작물 순환 보너스 및 단일 작물 연작 피해 활성화/비활성화 (콩과 식물은 질소 복구, 동일 작물 연작은 영양분 소모 증가)" eh="958b4212" />
@@ -428,7 +434,7 @@
     <e k="sf_help_k" v="K (칼륨) - 칼리를 살포하세요. 뿌리에 중요합니다." eh="e0217634" />
     <e k="sf_help_om" v="OM (유기물) - 천천히 쌓임. 퇴비/컴포스트를 갈아엎으세요." eh="a4e29617" />
     <e k="sf_help_soil_header" v="토양 화학" eh="19c67ff5" />
-    <e k="sf_help_ph" v="pH 6.5-7.0 = 이상적. < 6.5 석회 살포. > 7.5 석고 살포." eh="8929304d" />
+    <e k="sf_help_ph" v="pH 6.5-7.0 = 이상적. &lt; 6.5 석회 살포. > 7.5 석고 살포." eh="8929304d" />
     <e k="sf_help_pressure_header" v="작물 위협" eh="132b0f66" />
     <e k="sf_help_weed" v="잡초 > 20% - 제초제 살포." eh="c8d890df" />
     <e k="sf_help_pest" v="해충 > 20% - 살충제 살포." eh="f4932a05" />
@@ -485,6 +491,19 @@
     <e k="sf_detail_disease_label" v="병해 발생 정도" eh="2b805cc9" />
     <e k="sf_detail_last_crop_label" v="이전 작물" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="순환 상태" eh="83f7f522" />
+
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="[EN] Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="[EN] If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="[EN] Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="[EN] Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="[EN] OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="[EN] Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="[EN] x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="[EN] +N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="[EN] less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="[EN] more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="[EN] no change" eh="66d22a5d" />
 
     <!-- Treatment Prescription Dialog -->
     <e k="sf_treat_title" v="처리 처방전" eh="0ccc3ee5" />
@@ -715,6 +734,8 @@
     <e k="sf_nav_smart_systems_desc"       v="Configure Smart Sensor, See &amp; Spray and Variable Rate systems" />
     <e k="sf_nav_tuning_label"            v="Constants Tuning Editor" />
     <e k="sf_nav_tuning_desc"             v="Fine-tune simulation constants: depletion rates, stress growth, starting soil values" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     <e k="sf_panel_hdr_smart_sensor_sys"   v="Smart Sensor System" />
     <e k="sf_panel_hdr_see_spray_sys"      v="See &amp; Spray System" />
     <e k="sf_panel_hdr_var_rate_sys"       v="Variable Rate System" />
@@ -796,7 +817,7 @@
     <e k="sf_guide_p1_34" v="[EN] Smart Sensor Blocks sections with no active need." eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="[EN] See &amp; Spray  Live per-cell pressure in the vehicle." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="[EN] Variable Rate Auto-adjusts boom rate from deficits." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="[EN] KEYBINDINGS" eh="07a9ae0d" />

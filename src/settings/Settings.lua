@@ -52,6 +52,41 @@ function Settings:getDifficultyName()
     end
 end
 
+--- Single gate for player-facing "bypass" tools - editors that let a player rescale
+--- or override the simulation (Crop Tuning Editor, Constants Tuning Editor). These are
+--- allowed on Simple difficulty ONLY. On Realistic and Hardcore the simulation is meant
+--- to be lived with, not tuned around, so these tools are hidden/refused. Keep every
+--- bypass feature routed through THIS one predicate so the policy lives in a single
+--- place rather than being re-derived per panel.
+---@return boolean
+function Settings:allowsBypassTools()
+    return self.difficulty == Settings.DIFFICULTY_EASY
+end
+
+--- Force every "simpleOnly" (soften) setting back to its schema default when the current
+--- difficulty does not allow bypass tools. Closes the loophole where a toggle eased on
+--- Simple would carry its softened value into Realistic/Hardcore: greying only DISABLES
+--- the control, this makes the stored value itself honest. Deterministic (schema defaults
+--- are identical on every peer) so server and clients converge with no extra broadcasts.
+--- Mutates fields directly and never calls save() (avoids recursion - save() calls this).
+---@return boolean changed  true if any value was corrected
+function Settings:enforceBypassLock()
+    if self:allowsBypassTools() then return false end
+    if not (SettingsSchema and SettingsSchema.definitions) then return false end
+    local changed = false
+    for _, def in ipairs(SettingsSchema.definitions) do
+        if def.simpleOnly and self[def.id] ~= def.default then
+            self[def.id] = def.default
+            changed = true
+        end
+    end
+    if changed then
+        SoilLogger.info("Bypass lock: soften settings forced to defaults on %s difficulty",
+            self:getDifficultyName())
+    end
+    return changed
+end
+
 function Settings:load()
     if type(self.difficulty) ~= "number" then
         SoilLogger.warning("Difficulty is not a number! Type: %s, Value: %s",
@@ -65,6 +100,9 @@ function Settings:load()
     self.manager:loadLocalSettings(self)
 
     self:validateSettings()
+    -- Correct any softened values a save may carry on Realistic/Hardcore (e.g. a save
+    -- that was on Simple then switched, or a hand-edited settings file).
+    self:enforceBypassLock()
 
     SoilLogger.info("Settings loaded. Enabled: %s, Difficulty: %s",
         tostring(self.enabled), self:getDifficultyName())
@@ -83,6 +121,10 @@ function Settings:save()
             type(self.difficulty), tostring(self.difficulty))
         self.difficulty = Settings.DIFFICULTY_NORMAL
     end
+
+    -- Every server/SP setting change funnels through save(); enforce the bypass lock here
+    -- so a difficulty change to Realistic/Hardcore forces soften toggles before persisting.
+    self:enforceBypassLock()
 
     self.manager:saveSettings(self)
     -- Always save local-only settings (HUD appearance) regardless of server/client role.

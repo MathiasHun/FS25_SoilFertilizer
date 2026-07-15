@@ -206,6 +206,12 @@ end
 
 -- ── Visibility ────────────────────────────────────────────────────────────
 function SoilTuningPanel:open()
+    -- Bypass tool: Simple difficulty only. Hard choke point so any trigger honors the
+    -- gate (matches SoilCropTuningPanel:open).
+    if self.settings and not self.settings:allowsBypassTools() then
+        SoilLogger.info("[SoilTuningPanel] Open blocked: bypass tools are Simple-difficulty only")
+        return
+    end
     if not self.initialized then self:initialize() end
     self.isVisible = true
     self.scrollPx  = 0

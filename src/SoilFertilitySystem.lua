@@ -57,6 +57,14 @@ function SoilFertilitySystem.new(settings)
     self.insecticideAppliedDay = {}  -- fieldId → game day insecticide last reduced pressure
     self.fungicideAppliedDay  = {}   -- fieldId → game day fungicide last reduced pressure
 
+    -- Harvest event bus (cross-mod). External mods (the ecosystem diseased-food /
+    -- feed model) register a listener via g_currentMission.soilHarvestBus and receive
+    -- a payload at each harvest cut carrying the harvested fill type + liters AND the
+    -- field's disease severity AT harvest. Disease is a growing-crop property that a
+    -- plain harvest would otherwise drop at the combine, so we expose it here before it
+    -- is gone. Keyed by name so a re-registering mod replaces its own listener.
+    self.harvestListeners = {}
+
     -- =========================================================
     -- PERF: Owned-field active set + batched daily simulation
     -- =========================================================
@@ -435,6 +443,58 @@ function SoilFertilitySystem:computeYieldModifier(fieldId, fruitTypeIndex)
     return modifier
 end
 
+--- Register a harvest-event listener (cross-mod). `fn` is called at each harvest cut
+--- with a single payload table (see _emitHarvest). Keyed by `name` so a mod replaces
+--- its own listener on re-register rather than stacking duplicates.
+---@param name string  unique listener id (usually the consuming mod name)
+---@param fn function  callback(payload)
+function SoilFertilitySystem:subscribeHarvest(name, fn)
+    if type(name) ~= "string" or type(fn) ~= "function" then return false end
+    self.harvestListeners[name] = fn
+    SoilLogger.info("Harvest bus: listener '%s' registered", name)
+    return true
+end
+
+--- Remove a previously registered harvest-event listener.
+---@param name string
+function SoilFertilitySystem:unsubscribeHarvest(name)
+    if self.harvestListeners[name] == nil then return false end
+    self.harvestListeners[name] = nil
+    SoilLogger.info("Harvest bus: listener '%s' removed", name)
+    return true
+end
+
+--- Fire all harvest listeners with the harvested fill type + liters and the field's
+--- disease state AT harvest. Called once per harvest cut (onHarvest is driven by
+--- Combine.addCutterArea and fires many times per second), so `liters`/`area` are the
+--- INCREMENTAL amount for this cut - a consumer accumulates them per field itself,
+--- exactly as the internal nutrient path does. Each listener is pcall-guarded: a
+--- misbehaving external listener must never crash the harvest path. No-op when no one
+--- is listening, so the common case costs a single table lookup.
+function SoilFertilitySystem:_emitHarvest(fieldId, fruitTypeIndex, liters, area)
+    if next(self.harvestListeners) == nil then return end
+    local field = self.fieldData[fieldId]
+    local payload = {
+        fieldId              = fieldId,
+        fruitTypeIndex       = fruitTypeIndex,
+        liters               = liters or 0,
+        area                 = area or 0,
+        -- Disease severity at harvest. diseasePressure (0-100 live) + activeDisease
+        -- (named pathogen id) are the meaningful inputs for a contamination/mycotoxin
+        -- model; activeDiseaseSeverity is a yield-penalty tier multiplier, included for
+        -- completeness. All read-only snapshots of the field's state this frame.
+        diseasePressure      = field and field.diseasePressure or 0,
+        activeDisease        = field and field.activeDisease or nil,
+        activeDiseaseSeverity = field and field.activeDiseaseSeverity or 1.0,
+    }
+    for name, fn in pairs(self.harvestListeners) do
+        local ok, err = pcall(fn, payload)
+        if not ok then
+            SoilLogger.warning("Harvest bus: listener '%s' errored: %s", tostring(name), tostring(err))
+        end
+    end
+end
+
 function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRatio, area)
     -- Harvest-time state resets: pest population disperses when crop is cleared
     if self.settings.pestPressure and SoilConstants.PEST_PRESSURE then
@@ -461,6 +521,11 @@ function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRat
     -- Nutrient depletion uses original (biological) liters - the soil gave up these
     -- nutrients regardless of the yield modifier applied in the combine hook.
     self:updateFieldNutrients(fieldId, fruitTypeIndex, liters, strawRatio, area)
+
+    -- Cross-mod harvest bus: emit BEFORE any harvest-time disease reset so the field's
+    -- disease severity at harvest is still reachable (the ecosystem diseased-food model
+    -- needs harvested liters + severity per field/fill type). No-op if nothing listens.
+    self:_emitHarvest(fieldId, fruitTypeIndex, liters, area)
 
     -- Reset session spray coverage so the next fertilizing pass starts fresh
     local harvestField = self.fieldData[fieldId]
@@ -493,7 +558,7 @@ function SoilFertilitySystem:onHarvest(fieldId, fruitTypeIndex, liters, strawRat
             local last = self._harvestBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._harvestBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -537,7 +602,26 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
     local diffMult = SoilConstants.DIFFICULTY.MULTIPLIERS[self.settings.difficulty] or 1.0
     local haFactor = SoilConstants.MOWER_HA_FACTOR or 6.0
     local fieldAreaHa = (field.fieldArea and field.fieldArea > 0) and field.fieldArea or 1.0
-    local factor   = (areaHa / fieldAreaHa) * haFactor * diffMult
+
+    -- Per-day area cap (same rationale as onPlowing/onCultivation/onMulching): total
+    -- depletion from mowing cannot exceed one full-field-equivalent per day regardless of
+    -- pass count. Grass on a permanent meadow extends past the registered field polygon and
+    -- the header overlaps heavily, so without this clamp a single mowing session over-counts
+    -- the worked area several times over and floors N/P/K in one go (#730, #706). The mower
+    -- hook already feeds actually-cut area (lastChangedArea), so this cap is the backstop.
+    local today = (g_currentMission and g_currentMission.environment and
+                   g_currentMission.environment.currentDay) or 0
+    if not self._mowAreaToday then self._mowAreaToday = {} end
+    local entry = self._mowAreaToday[fieldId]
+    if not entry or entry.day ~= today then
+        entry = { day = today, used = 0 }
+        self._mowAreaToday[fieldId] = entry
+    end
+    local clampedArea = math.min(areaHa, math.max(0, fieldAreaHa - entry.used))
+    if clampedArea <= 0 then return end
+    entry.used = entry.used + clampedArea
+
+    local factor   = (clampedArea / fieldAreaHa) * haFactor * diffMult
 
     local limits = SoilConstants.NUTRIENT_LIMITS
     field.nitrogen   = math.max(limits.MIN, field.nitrogen   - rates.N * factor)
@@ -548,8 +632,9 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
     field.lastHarvest = (g_currentMission and g_currentMission.environment
                          and g_currentMission.environment.currentDay) or 0
 
-    SoilLogger.debug("Mow: Field %d, %s, %.5f ha - N:%.1f P:%.1f K:%.1f",
-        fieldId, fruitDesc.name, areaHa, field.nitrogen, field.phosphorus, field.potassium)
+    SoilLogger.debug("Mow: Field %d, %s, %.5f ha (cut %.5f, day-used %.3f/%.2f) - N:%.1f P:%.1f K:%.1f",
+        fieldId, fruitDesc.name, clampedArea, areaHa, entry.used, fieldAreaHa,
+        field.nitrogen, field.phosphorus, field.potassium)
 
     -- Broadcast field update to clients in multiplayer (throttled - mower fires every tick)
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo
@@ -560,7 +645,7 @@ function SoilFertilitySystem:onMow(fieldId, fruitTypeIndex, areaHa)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -576,6 +661,12 @@ function SoilFertilitySystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
     local fillType = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
 
     SoilLogger.debug("Fertilizer: Field %d, %s, %.4fL", fieldId, fillType and fillType.name or "unknown", liters)
+
+    -- Organic certification compliance: a synthetic (non-approved) input on a
+    -- transitioning or certified field is a breach (full reset to conventional).
+    if g_SoilFertilityManager and g_SoilFertilityManager.organic and fillType then
+        g_SoilFertilityManager.organic:onInputApplied(fieldId, fillType.name)
+    end
 
     -- Trigger overlay refresh so the map tile color updates promptly after spraying.
     -- Throttled to once every 2 seconds to avoid rebuilding samplePoints every frame.
@@ -600,7 +691,7 @@ function SoilFertilitySystem:onFertilizerApplied(fieldId, fillTypeIndex, liters)
             self._fertBroadcastTime[bKey] = now
             local field = self.fieldData[fieldId]
             if field and SoilFieldUpdateEvent then
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -757,7 +848,7 @@ function SoilFertilitySystem:onSowing(fieldId, area, seedsFruitType)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1008,7 +1099,7 @@ function SoilFertilitySystem:onPlowing(fieldId, area, isAlsoSprayer, cropBiomass
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1147,7 +1238,7 @@ function SoilFertilitySystem:onCultivation(fieldId, area, isAlsoSprayer, cropBio
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1197,7 +1288,7 @@ function SoilFertilitySystem:onMulching(fieldId, area, cropBiomass)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1312,7 +1403,7 @@ function SoilFertilitySystem:onStripTill(fieldId, area)
             local last = self._tillBroadcastTime[fieldId] or 0
             if (now - last) >= 5000 then
                 self._tillBroadcastTime[fieldId] = now
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -1366,7 +1457,7 @@ function SoilFertilitySystem:onHerbicideApplied(fieldId, effectiveness)
     -- Broadcast in multiplayer
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1555,7 +1646,7 @@ function SoilFertilitySystem:onInsecticideApplied(fieldId, effectiveness)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1601,7 +1692,7 @@ function SoilFertilitySystem:onFungicideApplied(fieldId, effectiveness)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 end
@@ -1707,6 +1798,7 @@ function SoilFertilitySystem:_updateActiveDisease(fieldId, field, season, isRain
         if picked then
             field.activeDisease = picked
             field.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(picked)
+            field.diseaseDiscovered = false  -- a fresh infection is unknown until scouted
         end
     elseif field.activeDisease and (field.activeDiseaseSeverity == nil) then
         field.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(field.activeDisease)
@@ -1724,6 +1816,23 @@ function SoilFertilitySystem:getScoutReport(fieldId)
         return { fieldId = fieldId, enabled = false }
     end
 
+    -- Discovery gate: a NAMED active infection stays UNKNOWN in the report until the
+    -- field has been deliberately scouted (scoutField) or revealed by a future dog /
+    -- ProStaff report. This is the single source of truth for the whole disease-intel
+    -- economy - every consumer (scout menu, console, FarmTablet) inherits the gate from
+    -- here. Pure read: it NEVER sets discovered itself, so merely viewing can't reveal.
+    -- A field with no named infection is not gated (nothing to discover).
+    if field.activeDisease and not field.diseaseDiscovered then
+        return {
+            fieldId = fieldId,
+            enabled = true,
+            discovered = false,
+            crop = field.lastCrop,
+            fungicideActive = (field.fungicideDaysLeft or 0) > 0,
+            fungicideDaysLeft = field.fungicideDaysLeft or 0,
+        }
+    end
+
     local dp = SoilConstants.DISEASE_PRESSURE
     local pressure = field.diseasePressure or 0
     local tier
@@ -1736,6 +1845,7 @@ function SoilFertilitySystem:getScoutReport(fieldId)
     local report = {
         fieldId = fieldId,
         enabled = true,
+        discovered = true,
         pressure = pressure,
         tier = tier,
         fungicideActive = (field.fungicideDaysLeft or 0) > 0,
@@ -1753,6 +1863,35 @@ function SoilFertilitySystem:getScoutReport(fieldId)
         end
     end
     return report
+end
+
+--- Deliberately scout a field: reveal its disease so getScoutReport returns the full
+--- truth from here on. The free bottom rung of the disease-intel economy - the player
+--- scouts each field one at a time (or buys a ProStaff report / gets a dog ping) to learn
+--- what is on it. A fresh infection re-hides (onset resets diseaseDiscovered), so a new
+--- outbreak must be re-scouted. Server-authoritative in MP: a client marks it locally
+--- (optimistic - discovery is monotonic) and asks the server to make it authoritative and
+--- sync it farm-wide via the field-update broadcast.
+---@param fieldId number
+---@return table|nil report  the now-revealed scout report
+function SoilFertilitySystem:scoutField(fieldId)
+    local field = self.fieldData and self.fieldData[fieldId]
+    if not field then return self:getScoutReport(fieldId) end
+
+    if not field.diseaseDiscovered then
+        field.diseaseDiscovered = true
+        if g_currentMission and g_currentMission.missionDynamicInfo
+           and g_currentMission.missionDynamicInfo.isMultiplayer then
+            if not g_server then
+                if SoilScoutFieldEvent then
+                    g_client:getServerConnection():sendEvent(SoilScoutFieldEvent.new(fieldId))
+                end
+            elseif SoilFieldUpdateEvent then
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
+            end
+        end
+    end
+    return self:getScoutReport(fieldId)
 end
 
 --- Apply a named fungicide to a field via the menu/console path (no physical fill type).
@@ -1852,7 +1991,7 @@ function SoilFertilitySystem:applyNamedFungicide(fieldId, chemId, opts)
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 
@@ -1895,10 +2034,13 @@ function SoilFertilitySystem:debugSetDisease(fieldId, pressure, diseaseId)
         field.activeDisease = picked
         field.activeDiseaseSeverity = picked and SoilDiseaseSystem.yieldSeverity(picked) or 1.0
     end
+    -- Forced test disease starts unknown on purpose: SoilSetDisease leaves it GATED so the
+    -- discovery gate is testable (the Soil Monitor shows "?"), then SoilScout reveals it.
+    field.diseaseDiscovered = false
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent then
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
 
@@ -1914,6 +2056,10 @@ function SoilFertilitySystem:onEnvironmentUpdate(env, dt)
     if currentDay ~= self.lastUpdateDay then
         self.lastUpdateDay = currentDay
         self:updateDailySoil()
+        -- Advance organic transitions (uses the monotonic day internally).
+        if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+            g_SoilFertilityManager.organic:onDayChanged()
+        end
     end
 
     -- Rain effects
@@ -2390,6 +2536,28 @@ function SoilFertilitySystem:_computeInitialSoil(fieldId, farmlandObj)
     return soil
 end
 
+--- Arable crop-polygon area (ha) for a farmland parcel, or nil if it cannot be resolved yet.
+--- The soil model is keyed by farmland id (getOrCreateField(farmlandId)), but one parcel can
+--- bundle a farmstead / roads / hedges with the arable field (#719, Riverbend Springs farmland
+--- 66). Using the mapped crop field's own areaHa scopes per-hectare math and the compaction
+--- average to worked ground instead of the whole parcel, which is ~2x larger. Returns nil (not
+--- the parcel area) so each caller keeps control of its own fallback.
+---@param farmlandId number
+---@return number|nil cropAreaHa
+function SoilFertilitySystem:_resolveCropAreaHa(farmlandId)
+    if not (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) then return nil end
+    local cropField = g_fieldManager.farmlandIdFieldMapping[farmlandId]
+    if not cropField then return nil end
+    -- Read the areaHa property directly, the proven pattern from the #475/#476 area fix.
+    local areaHa = cropField.areaHa
+    -- areaHa defaults to 1.0 until the field polygon loads; treat ~1.0 as "not ready yet" so the
+    -- placeholder is never locked in (matches the existing #475/#476 crop-area guard).
+    if areaHa and areaHa > 0 and math.abs(areaHa - 1.0) > 0.05 then
+        return areaHa
+    end
+    return nil
+end
+
 function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
     if not fieldId or fieldId <= 0 then return nil end
 
@@ -2423,12 +2591,20 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
     local confirmedArea = false
     local initialArea = area or 1.0
     local farmlandObj = g_farmlandManager and g_farmlandManager:getFarmlandById(fieldId) or nil
-    if farmlandObj and not area and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-        initialArea = farmlandObj.areaInHa
-        confirmedArea = true
-    end
     if area and area > 0 then
         confirmedArea = true
+    else
+        -- Prefer the arable crop-polygon area over the whole farmland parcel (#719).
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            initialArea = cropArea
+            confirmedArea = true
+        elseif farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
+            -- Crop polygon not loaded yet: seed a sane nonzero area from the parcel but leave it
+            -- UNconfirmed so the first spray/herbicide pass swaps in the real crop area.
+            initialArea = farmlandObj.areaInHa
+            confirmedArea = false
+        end
     end
 
     -- Roll the starting soil profile (regional gradient + per-field noise, plus any
@@ -2458,6 +2634,7 @@ function SoilFertilitySystem:getOrCreateField(fieldId, createIfMissing, area)
         fungicideDaysLeft = 0,
         activeDisease = nil,        -- DISEASE_DEFS id of the current named infection (nil = none)
         activeDiseaseSeverity = 1.0,-- cached yield-severity multiplier for activeDisease
+        diseaseDiscovered = false,  -- discovery gate: an active infection stays UNKNOWN in every scout report until deliberately scouted (or revealed by a future dog / ProStaff report)
         lastFungicide = nil,        -- last chemical applied (for resistance / UI flavor)
         dryDayCount = 0,
         nutrientBuffer = {},  -- Tracks [fillTypeIndex] = litersApplied (reset daily)
@@ -3300,7 +3477,7 @@ function SoilFertilitySystem:_processOneDailyField(fieldId, field)
 
     -- ── Broadcast to MP clients ──────────────────────────────────────────────
     if g_server and SoilFieldUpdateEvent then
-        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
     end
 end
 
@@ -3599,17 +3776,17 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
                     cropGrowthState  = fs.growthState
                 end
             end
-            if hasCrop then
-                -- Perennial forage (grass, meadow, alfalfa…) is exempt from amendment burn
-                -- while the sward is short - young regrowth or freshly cut. Liming or spreading
-                -- organics on a short/cut sward is standard practice (small leaf area, low burn
-                -- risk), so only penalise once it has regrown into its harvest window (tall).
-                -- Annual crops are never exempt. Shared by lime (#646) and organic matter
-                -- (#629/#645).
-                -- A short/early crop must not take the amendment burn: a seedling annual or a
-                -- short/cut perennial sward has no leaf canopy to scorch (#645/#646/#681). The
-                -- shared helper decides whether the crop is established enough to actually burn.
-                local burnExempt = not self:isAmendmentBurnRisk(cropFruitIndex, cropGrowthState)
+            -- Perennial forage (grass, meadow, alfalfa…) is exempt from amendment burn
+            -- while the sward is short - young regrowth or freshly cut. Liming or spreading
+            -- organics on a short/cut sward is standard practice (small leaf area, low burn
+            -- risk), so only penalise once it has regrown into its harvest window (tall).
+            -- Annual crops are never exempt. Shared by lime (#646) and organic matter
+            -- (#629/#645).
+            -- A short/early crop must not take the amendment burn: a seedling annual or a
+            -- short/cut perennial sward has no leaf canopy to scorch (#645/#646/#681). The
+            -- shared helper decides whether the crop is established enough to actually burn.
+            local burnExempt = not hasCrop or not self:isAmendmentBurnRisk(cropFruitIndex, cropGrowthState)
+            if hasCrop and not burnExempt then
 
                 local ab = SoilConstants.AMEND_BURN
                 if isLimeAmendment then
@@ -3651,25 +3828,26 @@ function SoilFertilitySystem:applyFertilizer(fieldId, fillTypeIndex, liters)
     -- Pass% to cap at ~50% after a full field pass (issue #475/#476).
     -- Also re-confirm at the start of every new session so field-size changes (issue #507) take effect.
     local _isNewSession = not next(field.sessionCoverageCells or {})
-    if (not field._farmlandAreaConfirmed or _isNewSession) and g_farmlandManager then
-        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-            -- Try crop polygon area via farmland mapping (g_fieldManager has no getFieldAtWorldPosition)
-            local cropField = nil
-            if g_farmlandManager and self._lastSprayX and self._lastSprayZ then
-                local _fl = g_farmlandManager:getFarmlandAtWorldPosition(self._lastSprayX, self._lastSprayZ)
-                if _fl and g_fieldManager and g_fieldManager.farmlandIdFieldMapping then
-                    cropField = g_fieldManager.farmlandIdFieldMapping[_fl.id]
-                end
-            end
-            local cropArea  = cropField and cropField.areaHa
-            if cropArea and math.abs(cropArea - 1.0) > 0.05 then
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        -- Prefer the arable crop-polygon area, not the whole farmland parcel (#719). The parcel
+        -- includes roads/hedges/yard (~2x crop area) which skewed Pass%, per-ha rates, and the
+        -- compaction average. Resolve straight off the farmland->field mapping (no spray position
+        -- needed) so it works from the first pass and on dedicated servers.
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
                 field.fieldArea = cropArea
-            else
+                field.compactionTotalCells = nil  -- recompute the average denominator on the corrected area
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            -- Crop polygon not loaded yet and area still at the 1.0 default: seed from the parcel
+            -- so per-ha math is not stuck at 1 ha, but stay unconfirmed so a later pass corrects it.
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
                 field.fieldArea = farmlandObj.areaInHa
             end
         end
-        field._farmlandAreaConfirmed = true
     end
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
@@ -4245,13 +4423,23 @@ function SoilFertilitySystem:onHerbicideAppliedDirect(fieldId, effectiveness, li
     if not field then return end
 
     -- Confirm field area from farmland on first herbicide application (mirrors applyFertilizer).
-    -- Without this, newly-created fields default to 1.0 ha, making targetVol wrong on dedi servers.
-    if not field._farmlandAreaConfirmed and g_farmlandManager then
-        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-            field.fieldArea = farmlandObj.areaInHa
+    -- Also re-check at the start of every new session so field-size changes (issue #507/#726) take effect.
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        -- Prefer the arable crop-polygon area over the parcel (#719); mirrors applyFertilizer.
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
         end
-        field._farmlandAreaConfirmed = true
     end
 
     local areaInHa = field.fieldArea or 1.0
@@ -4306,7 +4494,7 @@ function SoilFertilitySystem:onHerbicideAppliedDirect(fieldId, effectiveness, li
         if g_server and g_currentMission and g_currentMission.missionDynamicInfo
             and g_currentMission.missionDynamicInfo.isMultiplayer then
             if SoilFieldUpdateEvent then
-                g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+                SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
             end
         end
     end
@@ -4318,8 +4506,26 @@ end
 
 function SoilFertilitySystem:onInsecticideAppliedDirect(fieldId, effectiveness, liters)
     if not self.settings.pestPressure then return end
-    local field = self.fieldData[fieldId]
+    local field = self:getOrCreateField(fieldId, true)
     if not field then return end
+
+    -- Confirm field area on first application (mirrors onHerbicideAppliedDirect / applyFertilizer)
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
+        end
+    end
 
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
@@ -4346,8 +4552,26 @@ end
 
 function SoilFertilitySystem:onFungicideAppliedDirect(fieldId, effectiveness, liters)
     if not self.settings.diseasePressure then return end
-    local field = self.fieldData[fieldId]
+    local field = self:getOrCreateField(fieldId, true)
     if not field then return end
+
+    -- Confirm field area on first application (mirrors onInsecticideAppliedDirect / applyFertilizer)
+    local _isNewSession = not next(field.sessionCoverageCells or {})
+    if not field._farmlandAreaConfirmed or _isNewSession then
+        local cropArea = self:_resolveCropAreaHa(fieldId)
+        if cropArea then
+            if cropArea ~= field.fieldArea then
+                field.fieldArea = cropArea
+                field.compactionTotalCells = nil
+            end
+            field._farmlandAreaConfirmed = true
+        elseif g_farmlandManager and (field.fieldArea or 0) <= 1.0 then
+            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+            if farmlandObj and (farmlandObj.areaInHa or 0) > 0 then
+                field.fieldArea = farmlandObj.areaInHa
+            end
+        end
+    end
 
     local areaInHa = field.fieldArea or 1.0
     if areaInHa <= 0 then areaInHa = 1.0 end
@@ -4459,9 +4683,97 @@ function SoilFertilitySystem:applyBurnEffect(fieldId, rateMultiplier)
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
         if SoilFieldUpdateEvent and (not field._lastBurnBroadcast or (now - field._lastBurnBroadcast) >= gapMs) then
             field._lastBurnBroadcast = now
-            g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+            SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
         end
     end
+end
+
+-- Crop rotation projection (shared by getFieldInfo + projectRotation)
+
+--- Pure crop-rotation status for a (mostRecent, previous) crop pair. Shared by
+--- getFieldInfo (current status) and projectRotation (hypothetical next crop) so the
+--- pre-plant preview can never disagree with the status the player actually gets.
+--- Returns "Bonus" / "OK" / "Fatigue", or nil when the pair is incomplete.
+---@param crop1Name string|nil most-recent crop (raw FS25 fruit-type name)
+---@param crop2Name string|nil the crop before it
+---@return string|nil
+function SoilFertilitySystem:_rotationStatusFor(crop1Name, crop2Name)
+    local cr = SoilConstants.CROP_ROTATION
+    if not cr or not crop1Name or not crop2Name then return nil end
+    local crop1 = string.lower(crop1Name)
+    local crop2 = string.lower(crop2Name)
+    local pf    = SoilConstants.PERENNIAL_FORAGE_NAMES or {}
+    if pf[crop1] then
+        -- Multi-cut perennial forage standing across cuts is normal management, not
+        -- monoculture fatigue (#694). Only a bonus when rotated INTO from a non-legume,
+        -- non-forage crop.
+        if cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] and not pf[crop2] then
+            return "Bonus"
+        end
+        return "OK"
+    elseif cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] then
+        return "Bonus"
+    elseif crop1 == crop2 then
+        return "Fatigue"
+    end
+    return "OK"
+end
+
+--- Read-only rotation foresight: "if the player plants candidateCropName next on this
+--- field, what rotation status and effects result?" A pure projection that writes no
+--- soil state. It runs SoilFertilizer's OWN rotation + disease-rotation logic with the
+--- candidate as the hypothetical most-recent crop and the field's current crop as the
+--- previous, so the preview always matches the outcome the player actually gets.
+---@param fieldId number
+---@param candidateCropName string raw/lowercase FS25 fruit-type name of the crop to preview
+---@return table|nil { candidate, follows, status, fatigue, fatigueMultiplier, nitrogen, disease } or nil
+function SoilFertilitySystem:projectRotation(fieldId, candidateCropName)
+    if not fieldId or fieldId <= 0 then return nil end
+    if not candidateCropName or candidateCropName == "" then return nil end
+
+    local info = self:getFieldInfo(fieldId)
+    if not info then return nil end
+
+    -- The candidate follows whatever crop is in the ground now (getFieldInfo resolves the
+    -- live crop, falling back to lastCrop). After the player harvests that crop and plants
+    -- the candidate, the candidate becomes lastCrop and the current crop becomes lastCrop2,
+    -- so the projected status is _rotationStatusFor(candidate, currentCrop).
+    local currentCrop = info.lastCrop
+    if not currentCrop or currentCrop == "" then
+        -- Nothing to follow yet: projection is undefined until the field has grown a crop.
+        return { candidate = candidateCropName, follows = nil, status = nil }
+    end
+
+    local status = self:_rotationStatusFor(candidateCropName, currentCrop)
+    local cr = SoilConstants.CROP_ROTATION
+
+    -- Disease-pressure direction, from SoilFertilizer's own disease-rotation multiplier on
+    -- the hypothetical post-plant history (candidate, currentCrop, previous). >1 raises
+    -- disease, <1 lowers it, 1.0 neutral. Guarded so it degrades gracefully if the disease
+    -- module is not present.
+    local disease = "neutral"
+    if SoilDiseaseSystem and SoilDiseaseSystem.rotationMult then
+        local mult = SoilDiseaseSystem.rotationMult({
+            lastCrop  = candidateCropName,
+            lastCrop2 = currentCrop,
+            lastCrop3 = info.lastCrop2,
+        })
+        if mult and mult > 1.001 then
+            disease = "up"
+        elseif mult and mult < 0.999 then
+            disease = "down"
+        end
+    end
+
+    return {
+        candidate         = candidateCropName,
+        follows           = currentCrop,
+        status            = status,                              -- "Bonus" / "OK" / "Fatigue" / nil
+        fatigue           = (status == "Fatigue"),               -- nutrients deplete faster (x FATIGUE_MULTIPLIER)
+        fatigueMultiplier = (cr and cr.FATIGUE_MULTIPLIER) or 1.0,
+        nitrogen          = (status == "Bonus") and "up" or "neutral", -- legume spring N bonus
+        disease           = disease,
+    }
 end
 
 --- Get field info for display (HUD, console, etc)
@@ -4574,30 +4886,11 @@ function SoilFertilitySystem:getFieldInfo(fieldId, x, z)
         cropName = field.sownCrop or field.lastCrop
     end
 
-    -- Compute crop rotation status for external consumers (e.g. FarmTablet)
-    local rotationStatus = nil
-    if SoilConstants.CROP_ROTATION and field.lastCrop and field.lastCrop2 then
-        local cr      = SoilConstants.CROP_ROTATION
-        local crop1   = string.lower(field.lastCrop)
-        local crop2   = string.lower(field.lastCrop2)
-        local pf      = SoilConstants.PERENNIAL_FORAGE_NAMES or {}
-        if pf[crop1] then
-            -- Multi-cut perennial forage: the same crop standing across several cuts is
-            -- normal management, not monoculture fatigue (#694). Only flag a bonus if the
-            -- player genuinely rotated INTO it from a non-legume, non-forage crop.
-            if cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] and not pf[crop2] then
-                rotationStatus = "Bonus"
-            else
-                rotationStatus = "OK"
-            end
-        elseif cr.LEGUMES[crop1] and not cr.LEGUMES[crop2] then
-            rotationStatus = "Bonus"
-        elseif crop1 == crop2 then
-            rotationStatus = "Fatigue"
-        else
-            rotationStatus = "OK"
-        end
-    end
+    -- Compute crop rotation status for external consumers (e.g. FarmTablet).
+    -- Delegates to the shared _rotationStatusFor helper so projectRotation() (the
+    -- pre-plant foresight read) computes the identical status and can never disagree
+    -- with what the player actually gets.
+    local rotationStatus = self:_rotationStatusFor(field.lastCrop, field.lastCrop2)
 
     -- Resolve per-crop nutrient targets (nil when no crop planted)
     local cropTargets = nil
@@ -4682,6 +4975,7 @@ function SoilFertilitySystem:getFieldInfo(fieldId, x, z)
         diseasePressure = field.diseasePressure or 0,
         fungicideActive = (field.fungicideDaysLeft or 0) > 0,
         activeDisease = field.activeDisease,  -- DISEASE_DEFS id of the named infection, or nil
+        diseaseDiscovered = field.diseaseDiscovered or false,  -- discovery gate: false = named infection not yet scouted (HUD shows "?")
         lastFungicide = field.lastFungicide,
         burnDaysLeft = field.burnDaysLeft or 0,
         amendBurnPenalty = field.amendBurnPenalty or 0,  -- pending lime/OM-on-crop burn (0-1); explains a low yield
@@ -4786,6 +5080,7 @@ function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
             setXMLFloat(xmlFile, fieldKey .. "#diseasePressure", field.diseasePressure or 0)
             setXMLInt(xmlFile, fieldKey .. "#fungicideDaysLeft", field.fungicideDaysLeft or 0)
             setXMLString(xmlFile, fieldKey .. "#activeDisease", field.activeDisease or "")
+            setXMLInt(xmlFile, fieldKey .. "#diseaseDiscovered", field.diseaseDiscovered and 1 or 0)
             setXMLString(xmlFile, fieldKey .. "#lastFungicide", field.lastFungicide or "")
             setXMLInt(xmlFile, fieldKey .. "#dryDayCount", field.dryDayCount or 0)
             setXMLInt(xmlFile, fieldKey .. "#burnDaysLeft", field.burnDaysLeft or 0)
@@ -4793,6 +5088,11 @@ function SoilFertilitySystem:saveToXMLFile(xmlFile, key)
             setXMLFloat(xmlFile, fieldKey .. "#coverageFraction", field.coverageFraction or 0)
             setXMLFloat(xmlFile, fieldKey .. "#compaction", field.compaction or 0)
             setXMLFloat(xmlFile, fieldKey .. "#amendBurnPenalty", field.amendBurnPenalty or 0)
+
+            -- Organic certification state (state / transition clock / breaches)
+            if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+                g_SoilFertilityManager.organic:saveFieldState(xmlFile, fieldKey, field)
+            end
 
             -- Persist the frozen yield modifier so an in-progress harvest keeps the exact
             -- same yield (and any amendment burn baked into it on the first cut) across a
@@ -4893,6 +5193,7 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             fungicideDaysLeft = getXMLInt(xmlFile, fieldKey .. "#fungicideDaysLeft") or 0,
             activeDisease = getXMLString(xmlFile, fieldKey .. "#activeDisease"),
             activeDiseaseSeverity = 1.0,
+            diseaseDiscovered = (getXMLInt(xmlFile, fieldKey .. "#diseaseDiscovered") or 0) == 1,
             lastFungicide = getXMLString(xmlFile, fieldKey .. "#lastFungicide"),
             dryDayCount = getXMLInt(xmlFile, fieldKey .. "#dryDayCount") or 0,
             burnDaysLeft = getXMLInt(xmlFile, fieldKey .. "#burnDaysLeft") or 0,
@@ -4917,72 +5218,15 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             sessionLastProduct = nil,
         }
 
-        -- Restore only the DAILY coverage so the daily pass% and protection thresholds
-        -- carry across reloads (#608). Do NOT restore the SESSION coverage: it is
-        -- session-local and a reload starts a fresh spray session.
-        --
-        -- Seeding sessionCoverageFraction from the save was the #640 bug: the overlap
-        -- prevention gate treats sessionCoverageFraction >= 0.99 as "field fully covered",
-        -- suppresses every boom section and forces processSprayerArea to return 0. So any
-        -- field that had been fertilized before saving loaded back as already-covered and
-        -- silently refused ALL further fertilizer on every crop (the "fields don't update
-        -- after spreading" / "N not going up" reports), until a harvest/plow/cultivate/
-        -- day-change happened to reset the session fraction. sessionCoverage* stay 0/empty.
-        do
-            local f = self.fieldData[fieldId]
-            f.coveredAreaHa = f.coverageFraction * f.fieldArea
+        -- Organic certification state (leaves the field conventional if absent)
+        if g_SoilFertilityManager and g_SoilFertilityManager.organic then
+            g_SoilFertilityManager.organic:loadFieldState(xmlFile, fieldKey, self.fieldData[fieldId])
         end
 
         -- Load daily application throttles
         self.herbicideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#herbicideAppliedDay") or 0
         self.insecticideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#insecticideAppliedDay") or 0
         self.fungicideAppliedDay[fieldId] = getXMLInt(xmlFile, fieldKey .. "#fungicideAppliedDay") or 0
-
-        -- Refresh fieldArea - prefer the actual crop polygon area (field.areaHa) so that
-        -- Pass% uses the correct denominator. Farmland.areaInHa includes roads/hedges
-        -- (~2× crop area), causing Pass% to cap at ~50% on a full-field spray (#475/#476).
-        -- Use farmland area as fallback when crop polygon area is the unloaded default (1.0).
-        if g_farmlandManager then
-            local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
-            if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
-                local bestArea = farmlandObj.areaInHa
-                if g_fieldManager and g_fieldManager.fields then
-                    for _, fld in ipairs(g_fieldManager.fields) do
-                        if fld and fld.farmland and fld.farmland.id == fieldId then
-                            local ca = fld.areaHa
-                            if ca and math.abs(ca - 1.0) > 0.05 and ca <= farmlandObj.areaInHa + 0.1 then
-                                bestArea = ca
-                                break
-                            end
-                        end
-                    end
-                end
-                self.fieldData[fieldId].fieldArea = bestArea
-            end
-        end
-
-        -- Clear empty strings
-        if self.fieldData[fieldId].lastCrop == "" then
-            self.fieldData[fieldId].lastCrop = nil
-        end
-        if self.fieldData[fieldId].lastCrop2 == "" then
-            self.fieldData[fieldId].lastCrop2 = nil
-        end
-        if self.fieldData[fieldId].lastCrop3 == "" then
-            self.fieldData[fieldId].lastCrop3 = nil
-        end
-        -- Empty sownCrop must be nil, not "", or getFieldInfo's `sownCrop or lastCrop`
-        -- fallback would resolve to "" and hide the real crop just after a reload.
-        if self.fieldData[fieldId].sownCrop == "" then
-            self.fieldData[fieldId].sownCrop = nil
-        end
-        -- Named disease: empty → nil, and rebuild the cached yield severity.
-        local fdd = self.fieldData[fieldId]
-        if fdd.activeDisease == "" then fdd.activeDisease = nil end
-        if fdd.lastFungicide == "" then fdd.lastFungicide = nil end
-        if fdd.activeDisease and SoilDiseaseSystem then
-            fdd.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(fdd.activeDisease)
-        end
 
         -- Load per-area zone cells
         local zi = 0
@@ -5004,31 +5248,11 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
             zi = zi + 1
         end
 
-        -- Reconstruct the compaction running sum + field-average from the per-cell
-        -- zoneData just loaded. Gameplay (onCompaction / onSubsoilerPass) stores per-cell
-        -- compaction in zoneData[cellKey].compaction and derives the field.compaction
-        -- scalar from compactionSum / compactionTotalCells - it never populates the legacy
-        -- compactionCells table. So saving wrote an empty compactionCells block and the
-        -- scalar reset to 0 on every reload, even though the per-cell values round-tripped
-        -- in zoneData: that was the "compaction drops to 0% after reload" half of #656.
-        -- Rebuilding the sum from zoneData keeps it consistent with the per-cell deltas
-        -- that onCompaction / onSubsoilerPass apply afterwards.
-        local zone = SoilConstants.ZONE
-        local f = self.fieldData[fieldId]
-        local compSum = 0
-        if f.zoneData then
-            for _, cell in pairs(f.zoneData) do
-                compSum = compSum + (cell.compaction or 0)
-            end
-        end
-        if compSum > 0 then
-            local areaInHa   = f.fieldArea or 1.0
-            local totalCells = math.max(1, math.ceil(areaInHa / zone.CELL_AREA_HA))
-            local maxC = (SoilConstants.COMPACTION and SoilConstants.COMPACTION.MAX_COMPACTION) or 100.0
-            f.compactionSum        = compSum
-            f.compactionTotalCells = totalCells
-            f.compaction           = math.min(maxC, compSum / totalCells)
-        end
+        -- Shared post-read finalization: fieldArea refresh (#475/#476), daily
+        -- coverage restore (#640/#608), empty->nil, disease severity, and the
+        -- compaction-sum rebuild from per-cell zoneData (#656). Same helper the
+        -- StateLedger table-load path uses, so the two loaders can never drift.
+        self:_finalizeLoadedField(fieldId, self.fieldData[fieldId])
 
         index = index + 1
     end
@@ -5046,6 +5270,260 @@ function SoilFertilitySystem:loadFromXMLFile(xmlFile, key)
        and g_currentMission.missionDynamicInfo.isMultiplayer then
         self:broadcastAllFieldData()
     end
+end
+
+-- =========================================================
+-- StateLedger table round-trip (delegate-when-present, #bedrock)
+-- =========================================================
+-- SoilFertilizer ships standalone, so soilData.xml stays the fallback/safety
+-- copy. When FS25_StateLedger is installed it becomes the load source of truth
+-- via these plain-table serializers. Both load paths (soilData.xml and the
+-- ledger table) funnel through _finalizeLoadedField so their post-read fixups
+-- can never diverge.
+
+-- Shared post-read finalization for one field, format-agnostic. Runs after the
+-- raw scalars + zoneData are in place. Preserves the exact ordering the XML
+-- loader always used: coverage restore uses the SAVED fieldArea, THEN fieldArea
+-- is refreshed from the farmland, THEN compaction is rebuilt from that area.
+function SoilFertilitySystem:_finalizeLoadedField(fieldId, f)
+    if type(f) ~= "table" then return end
+
+    -- Restore DAILY coverage area from the saved fraction (saved fieldArea,
+    -- before the farmland refresh below). Session coverage stays 0 on purpose
+    -- (#640/#608).
+    f.coveredAreaHa = (f.coverageFraction or 0) * (f.fieldArea or 1.0)
+
+    -- Refresh fieldArea - prefer the crop polygon area so Pass% uses the right
+    -- denominator; fall back to farmland area (#475/#476).
+    if g_farmlandManager then
+        local farmlandObj = g_farmlandManager:getFarmlandById(fieldId)
+        if farmlandObj and farmlandObj.areaInHa and farmlandObj.areaInHa > 0 then
+            local bestArea = farmlandObj.areaInHa
+            if g_fieldManager and g_fieldManager.fields then
+                for _, fld in ipairs(g_fieldManager.fields) do
+                    if fld and fld.farmland and fld.farmland.id == fieldId then
+                        local ca = fld.areaHa
+                        if ca and math.abs(ca - 1.0) > 0.05 and ca <= farmlandObj.areaInHa + 0.1 then
+                            bestArea = ca
+                            break
+                        end
+                    end
+                end
+            end
+            f.fieldArea = bestArea
+        end
+    end
+
+    -- Empty strings -> nil (a "" sownCrop would hide the real crop via the
+    -- `sownCrop or lastCrop` fallback right after a reload).
+    if f.lastCrop  == "" then f.lastCrop  = nil end
+    if f.lastCrop2 == "" then f.lastCrop2 = nil end
+    if f.lastCrop3 == "" then f.lastCrop3 = nil end
+    if f.sownCrop  == "" then f.sownCrop  = nil end
+
+    -- Named disease: empty -> nil, and rebuild the cached yield severity.
+    if f.activeDisease == "" then f.activeDisease = nil end
+    if f.lastFungicide == "" then f.lastFungicide = nil end
+    if f.activeDisease and SoilDiseaseSystem then
+        f.activeDiseaseSeverity = SoilDiseaseSystem.yieldSeverity(f.activeDisease)
+    end
+
+    -- Rebuild the compaction running sum + field-average from per-cell zoneData
+    -- (the #656 fix: onCompaction stores per-cell in zoneData, never the legacy
+    -- compactionCells table, so the scalar must be reconstructed here).
+    local zone = SoilConstants.ZONE
+    local compSum = 0
+    if f.zoneData then
+        for _, cell in pairs(f.zoneData) do
+            compSum = compSum + (cell.compaction or 0)
+        end
+    end
+    if compSum > 0 then
+        local areaInHa   = f.fieldArea or 1.0
+        local totalCells = math.max(1, math.ceil(areaInHa / zone.CELL_AREA_HA))
+        local maxC = (SoilConstants.COMPACTION and SoilConstants.COMPACTION.MAX_COMPACTION) or 100.0
+        f.compactionSum        = compSum
+        f.compactionTotalCells = totalCells
+        f.compaction           = math.min(maxC, compSum / totalCells)
+    end
+end
+
+-- Build a plain Lua table snapshot of all persisted soil state. Mirrors exactly
+-- the fields saveToXMLFile writes (same defaults, same "frozen-yield-only-when-
+-- live" and "organic-only-when-present" rules), so a ledger save equals an XML
+-- save. StateLedger's serializer round-trips arbitrary nested tables.
+function SoilFertilitySystem:getSoilStateTable()
+    local defaults = SoilConstants.FIELD_DEFAULTS
+    local out = { lastUpdateDay = self.lastUpdateDay or 0, fields = {} }
+    if type(self.fieldData) ~= "table" then return out end
+
+    for fieldId, field in pairs(self.fieldData) do
+        if type(field) == "table" then
+            local e = {
+                fieldArea             = field.fieldArea or 1.0,
+                nitrogen              = field.nitrogen or defaults.nitrogen,
+                phosphorus            = field.phosphorus or defaults.phosphorus,
+                potassium             = field.potassium or defaults.potassium,
+                organicMatter         = field.organicMatter or defaults.organicMatter,
+                pH                    = field.pH or defaults.pH,
+                lastCrop              = field.lastCrop or "",
+                lastCrop2             = field.lastCrop2 or "",
+                lastCrop3             = field.lastCrop3 or "",
+                sownCrop              = field.sownCrop or "",
+                rotationBonusDaysLeft = field.rotationBonusDaysLeft or 0,
+                lastHarvest           = field.lastHarvest or 0,
+                fertilizerApplied     = field.fertilizerApplied or 0,
+                weedPressure          = field.weedPressure or 0,
+                herbicideDaysLeft     = field.herbicideDaysLeft or 0,
+                pestPressure          = field.pestPressure or 0,
+                insecticideDaysLeft   = field.insecticideDaysLeft or 0,
+                diseasePressure       = field.diseasePressure or 0,
+                fungicideDaysLeft     = field.fungicideDaysLeft or 0,
+                activeDisease         = field.activeDisease or "",
+                diseaseDiscovered     = field.diseaseDiscovered or false,
+                lastFungicide         = field.lastFungicide or "",
+                dryDayCount           = field.dryDayCount or 0,
+                burnDaysLeft          = field.burnDaysLeft or 0,
+                lastAlertSeason       = field.lastAlertSeason or 0,
+                coverageFraction      = field.coverageFraction or 0,
+                compaction            = field.compaction or 0,
+                amendBurnPenalty      = field.amendBurnPenalty or 0,
+                herbicideAppliedDay   = self.herbicideAppliedDay[fieldId] or 0,
+                insecticideAppliedDay = self.insecticideAppliedDay[fieldId] or 0,
+                fungicideAppliedDay   = self.fungicideAppliedDay[fieldId] or 0,
+            }
+            -- Frozen yield only while a freeze is live (matches XML save).
+            if field.frozenYieldModifier and field.frozenYieldFruitType then
+                e.frozenYieldModifier  = field.frozenYieldModifier
+                e.frozenYieldFruitType = field.frozenYieldFruitType
+            end
+            -- Organic certification sub-table (only when present).
+            if field.organic then
+                e.organic = {
+                    state        = field.organic.state,
+                    startDay     = field.organic.startDay or 0,
+                    certifiedDay = field.organic.certifiedDay or 0,
+                    breaches     = field.organic.breaches or 0,
+                }
+            end
+            -- Per-area zone cells.
+            if field.zoneData then
+                local zt = {}
+                for cellKey, cell in pairs(field.zoneData) do
+                    zt[cellKey] = {
+                        N = cell.N or 0, P = cell.P or 0, K = cell.K or 0,
+                        pH = cell.pH or 6.0, OM = cell.OM or 0,
+                        weedPressure    = cell.weedPressure or 0,
+                        pestPressure    = cell.pestPressure or 0,
+                        diseasePressure = cell.diseasePressure or 0,
+                        compaction      = cell.compaction or 0,
+                    }
+                end
+                e.zoneData = zt
+            end
+            out.fields[fieldId] = e
+        end
+    end
+    return out
+end
+
+-- Apply a plain-table snapshot (from getSoilStateTable / StateLedger) back into
+-- fieldData. Mirrors loadFromXMLFile's raw read + clamps, then routes every
+-- field through the shared _finalizeLoadedField. Returns the field count.
+function SoilFertilitySystem:applySoilStateTable(data)
+    local defaults = SoilConstants.FIELD_DEFAULTS
+    self.fieldData = {}
+    local _curDay = (g_currentMission and g_currentMission.environment
+                     and g_currentMission.environment.currentDay) or 0
+
+    if type(data) ~= "table" then
+        self.lastUpdateDay = _curDay
+        return 0
+    end
+    self.lastUpdateDay = data.lastUpdateDay or _curDay
+
+    local count = 0
+    local fields = data.fields or {}
+    for fieldId, e in pairs(fields) do
+        if type(e) == "table" then
+            local f = {
+                fieldArea             = e.fieldArea or 1.0,
+                nitrogen              = math.max(0, math.min(100, e.nitrogen or defaults.nitrogen)),
+                phosphorus            = math.max(0, math.min(100, e.phosphorus or defaults.phosphorus)),
+                potassium             = math.max(0, math.min(100, e.potassium or defaults.potassium)),
+                organicMatter         = math.max(0, math.min(10, e.organicMatter or defaults.organicMatter)),
+                pH                    = math.max(5.0, math.min(8.5, e.pH or defaults.pH)),
+                lastCrop              = e.lastCrop,
+                lastCrop2             = e.lastCrop2,
+                lastCrop3             = e.lastCrop3,
+                sownCrop              = e.sownCrop,
+                rotationBonusDaysLeft = e.rotationBonusDaysLeft or 0,
+                lastHarvest           = e.lastHarvest or 0,
+                fertilizerApplied     = e.fertilizerApplied or 0,
+                weedPressure          = e.weedPressure or 0,
+                herbicideDaysLeft     = e.herbicideDaysLeft or 0,
+                pestPressure          = e.pestPressure or 0,
+                insecticideDaysLeft   = e.insecticideDaysLeft or 0,
+                diseasePressure       = e.diseasePressure or 0,
+                fungicideDaysLeft     = e.fungicideDaysLeft or 0,
+                activeDisease         = e.activeDisease,
+                activeDiseaseSeverity = 1.0,
+                diseaseDiscovered     = e.diseaseDiscovered or false,
+                lastFungicide         = e.lastFungicide,
+                dryDayCount           = e.dryDayCount or 0,
+                burnDaysLeft          = e.burnDaysLeft or 0,
+                amendBurnPenalty      = e.amendBurnPenalty,
+                frozenYieldModifier   = e.frozenYieldModifier,
+                frozenYieldFruitType  = e.frozenYieldFruitType,
+                coverageFraction      = e.coverageFraction or 0,
+                lastAlertSeason       = e.lastAlertSeason,
+                compaction            = 0,
+                compactionCells       = {},
+                compactionCellDays    = {},
+                compactionSum         = 0,
+                compactionTotalCells  = 0,
+                initialized           = true,
+                nutrientBuffer        = {},
+                zoneData              = {},
+                coveredAreaHa         = 0,
+                dailyCoverageCells    = {},
+                sessionCoverageHa     = 0,
+                sessionCoverageFraction = 0,
+                sessionCoverageCells  = {},
+                sessionLastProduct    = nil,
+            }
+            -- Organic certification (leaves the field conventional if absent).
+            if e.organic and e.organic.state and e.organic.state ~= "" then
+                f.organic = {
+                    state        = e.organic.state,
+                    startDay     = e.organic.startDay or 0,
+                    certifiedDay = e.organic.certifiedDay or 0,
+                    breaches     = e.organic.breaches or 0,
+                }
+            end
+            -- Daily application throttles.
+            self.herbicideAppliedDay[fieldId]   = e.herbicideAppliedDay or 0
+            self.insecticideAppliedDay[fieldId] = e.insecticideAppliedDay or 0
+            self.fungicideAppliedDay[fieldId]   = e.fungicideAppliedDay or 0
+            -- Per-area zone cells.
+            if e.zoneData then
+                for cellKey, cell in pairs(e.zoneData) do
+                    f.zoneData[cellKey] = {
+                        N = cell.N or 0, P = cell.P or 0, K = cell.K or 0,
+                        pH = cell.pH or 6.0, OM = cell.OM or 0,
+                        weedPressure    = cell.weedPressure or 0,
+                        pestPressure    = cell.pestPressure or 0,
+                        diseasePressure = cell.diseasePressure or 0,
+                        compaction      = cell.compaction or 0,
+                    }
+                end
+            end
+            self.fieldData[fieldId] = f
+            self:_finalizeLoadedField(fieldId, f)
+            count = count + 1
+        end
+    end
+    return count
 end
 
 -- Debug: List all fields
@@ -5282,7 +5760,7 @@ function SoilFertilitySystem:applyRetroactiveDrain(fieldId, dN, dP, dK)
     -- Mirror the harvest/fertilize sync path so clients see the reconciled values.
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo
        and g_currentMission.missionDynamicInfo.isMultiplayer and SoilFieldUpdateEvent then
-        g_server:broadcastEvent(SoilFieldUpdateEvent.new(fieldId, field))
+        SoilNetworkEvents_BroadcastFieldUpdate(fieldId, field)
     end
 
     SoilLogger.debug("FieldSentry retro drain: field=%d  -N %.1f -P %.1f -K %.1f", fieldId, dN or 0, dP or 0, dK or 0)

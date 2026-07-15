@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Kártevők" eh="2fed5101" />
     <e k="sf_hud_disease" v="Betegség" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(védett)" eh="8273211e" />
     <e k="sf_hud_yield" v="Hozam" eh="97345487" />
     <e k="sf_hud_estYield" v="Becsült hozam" eh="32a4135e" />
@@ -326,6 +327,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="Minden szimuláció a szerveren fut. A kliensek csatlakozáskor megkapják az adatokat. A HUD beállítások egyéniek és nem szinkronizálódnak a szerverrel." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Dedikált szerverek" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="A dedikált szerverek HUD nélkül futtatják a szimulációt. Használja a konzol parancsokat (soilStatus, SoilSetDifficulty, stb.) a kezeléshez." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
 
     <e k="sf_crop_rotation_short" v="Vetésforgó" eh="def2c162" />
@@ -430,7 +436,7 @@
     <e k="sf_help_k" v="K (Kálium)     - Pótlás: Hamuzsír. Fontos a gyökereknek." eh="e0217634" />
     <e k="sf_help_om" v="OM (Szerves a.) - Lassan épül. Trágya/Komposzt beszántása." eh="a4e29617" />
     <e k="sf_help_soil_header" v="TALAJKÉMIA" eh="19c67ff5" />
-    <e k="sf_help_ph" v="pH 6.5-7.0 = Ideális. < 6.5 mész. > 7.5 gipsz." eh="8929304d" />
+    <e k="sf_help_ph" v="pH 6.5-7.0 = Ideális. &lt; 6.5 mész. > 7.5 gipsz." eh="8929304d" />
     <e k="sf_help_pressure_header" v="NÖVÉNYI NYOMÁS" eh="132b0f66" />
     <e k="sf_help_weed" v="Gyom    > 20% - Gyomirtó szer." eh="c8d890df" />
     <e k="sf_help_pest" v="Kártevő > 20% - Rovarölő szer." eh="f4932a05" />
@@ -487,6 +493,19 @@
     <e k="sf_detail_disease_label" v="Betegségnyomás" eh="2b805cc9" />
     <e k="sf_detail_last_crop_label" v="Utolsó termény" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="Vetésforgó állapota" eh="83f7f522" />
+
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="[EN] Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="[EN] If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="[EN] Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="[EN] Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="[EN] OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="[EN] Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="[EN] x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="[EN] +N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="[EN] less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="[EN] more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="[EN] no change" eh="66d22a5d" />
     <e k="sf_treat_title" v="Kezelési előírás" eh="0ccc3ee5" />
     <e k="sf_treat_section_soil" v="Talajjavítás" eh="09e016e4" />
     <e k="sf_treat_section_fert" v="Tápanyag kijuttatás" eh="76521e8e" />
@@ -707,6 +726,8 @@
     <e k="sf_nav_smart_systems_desc"       v="Configure Smart Sensor, See &amp; Spray and Variable Rate systems" />
     <e k="sf_nav_tuning_label"            v="Constants Tuning Editor" />
     <e k="sf_nav_tuning_desc"             v="Fine-tune simulation constants: depletion rates, stress growth, starting soil values" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     <e k="sf_panel_hdr_smart_sensor_sys"   v="Smart Sensor System" />
     <e k="sf_panel_hdr_see_spray_sys"      v="See &amp; Spray System" />
     <e k="sf_panel_hdr_var_rate_sys"       v="Variable Rate System" />
@@ -788,7 +809,7 @@
     <e k="sf_guide_p1_34" v="[EN] Smart Sensor Blocks sections with no active need." eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="[EN] See &amp; Spray  Live per-cell pressure in the vehicle." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="[EN] Variable Rate Auto-adjusts boom rate from deficits." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="[EN] KEYBINDINGS" eh="07a9ae0d" />

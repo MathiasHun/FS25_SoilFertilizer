@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="杂草风险" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="虫害" eh="2fed5101" />
     <e k="sf_hud_disease" v="病害" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="（已防护）" eh="8273211e" />
     <e k="sf_hud_yield" v="产量" eh="97345487" />
     <e k="sf_hud_estYield" v="预估产量" eh="32a4135e" />
@@ -325,6 +326,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="所有土壤模拟运算在服务器端运行；玩家加入时自动接收完整田地数据与设置，服务器未加载完成会自动重试。悬浮窗位置、配色等个人设置仅本地生效，不同步服务器。" eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="专用服务器" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="专用服务器仅运行模拟运算，无悬浮窗和界面负载属于正常现象。可使用控制台指令（soilStatus、SoilSetDifficulty等）管理和查看模组设置。" eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
 
     <e k="sf_crop_rotation_short" v="轮作机制" eh="def2c162" />
@@ -486,6 +492,19 @@
     <e k="sf_detail_disease_label" v="病害压力" eh="2b805cc9" />
     <e k="sf_detail_last_crop_label" v="上季作物" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="轮作状态" eh="83f7f522" />
+
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="[EN] Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="[EN] If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="[EN] Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="[EN] Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="[EN] OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="[EN] Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="[EN] x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="[EN] +N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="[EN] less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="[EN] more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="[EN] no change" eh="66d22a5d" />
 
     <!-- Treatment Prescription Dialog (SoilTreatmentDialog.lua) -->
     <e k="sf_treat_title" v="改良方案建议" eh="0ccc3ee5" />
@@ -790,7 +809,7 @@
     <e k="sf_guide_p1_34" v="智能传感器  无改良需求区域自动关停对应喷杆" eh="dd267572" />
     <e k="sf_guide_p1_35" v="[EN]   Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="识别喷施系统  实时显示每块地块胁迫等级" eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="[EN]   JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="[EN]   Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="变量喷施系统  根据养分缺口自动调节喷杆出药量" eh="38a5c159" />
     <e k="sf_guide_p1_39" v="[EN]   Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="快捷键设置" eh="07a9ae0d" />
@@ -1091,5 +1110,7 @@
 		<e k="sf_scout_disabled" v="[EN] Disease system disabled" eh="a2ffd328" />
 		<e k="sf_admin_field_set_disease_label" v="[EN] Set Field Disease" eh="faa773f5" />
 		<e k="sf_admin_field_set_disease_desc" v="[EN] Manually set the disease pressure (and disease type) for the current field" eh="d86eb3e1" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     </elements>
 </l10n>

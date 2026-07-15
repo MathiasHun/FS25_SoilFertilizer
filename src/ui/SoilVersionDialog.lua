@@ -24,20 +24,17 @@ SoilVersionDialog.INSTANCE = nil
 -- Max 11 lines are visible in the box; if more exist we stop on a bullet boundary and add a "full changelog on GitHub" note.
 -- These are intentionally NOT translated, as they are always in English and often contain technical terms that don't translate well.
 SoilVersionDialog.CHANGELOG = {
-    "- Fields now catch named, crop-specific fungal diseases",
-    "- Scout a field (Shift+K) to identify the disease and the best fungicide to use",
-    "- 23 real fungicides, each with per-disease effectiveness, timing & weather rules",
-    "- Match the right chemical to the disease, the wrong one only half works",
-    "- Crop rotation and soil health now raise or lower disease pressure",
-    "- New Disease Difficulty setting: Easy / Normal / Hard",
-    "- Console: SoilScout, SoilTreat, SoilFungicides, SoilSetDiseaseDifficulty",
-    "- Field compaction can no longer read above 100%, the average is now capped",
-    "- High compaction now actually cuts yield (up to 15%), even with nutrients topped up",
-    "- Precision Farming is now detected only when it is actually enabled for your save, not just installed in the mods folder",
-    "- Soil Monitor and applied nutrients now follow the product physically in the tank, even when AI or Courseplay is driving",
-    "- Field Info box refactored (removed redundant info and added new info lines)",
-    "- All help texts and documentation are now in sync",
-    "- Added a Simplified Chinese translation (中文)"
+    "- See & Spray now works on every sprayer, with per-section shutoff on overlaps",
+    "    and field boundaries, plus variable-rate spot spraying (fertiliser too)",
+    "- Rotation foresight: the field-detail screen projects the next crop's yield",
+    "    before you plant, so you can plan the rotation from the soil you have",
+    "- Disease scouting: a field's named disease stays hidden on the Soil Monitor",
+    "    until you scout it - the monitor shows 'scout to identify' instead",
+    "- Fixed (#730): mowing meadows no longer drops N/P/K to the floor in one pass",
+    "- Fixed (#728): Vredo slurry spreader no longer treated as a chemical sprayer",
+    "- Fixed (#720): crop tuning edits now survive save and reload",
+    "- Fixed (#726): fungicide application no longer errors on some fields",
+    "- Dual and quad-tank sprayers now apply from all tanks correctly"
 }
 
 -- ── i18n helper ───────────────────────────────────────────

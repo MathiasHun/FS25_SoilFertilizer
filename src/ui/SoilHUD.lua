@@ -363,7 +363,14 @@ function SoilHUD:calculateHeight()
             if mgr.settings.weedPressure    and ((info.weedPressure    or 0) > 0 or info.herbicideActive)  then h = h + SoilHUD.LINE_H end
             if mgr.settings.pestPressure    and ((info.pestPressure    or 0) > 0 or info.insecticideActive) then h = h + SoilHUD.LINE_H end
             if mgr.settings.diseasePressure and ((info.diseasePressure or 0) > 0 or info.fungicideActive)   then h = h + SoilHUD.LINE_H end
-            if self._cachedSprayer and (info.sessionCoverageFraction or info.coverageFraction or 0) > 0 then h = h + SoilHUD.LINE_H end
+            if self._cachedSprayer then
+                -- Coverage can be two rows: daily coverage + per-pass (PASS). Reserve one
+                -- LINE_H per row that will actually draw, or the second row overlaps the row below.
+                local covLines = 0
+                if (info.coverageFraction or 0) > 0 then covLines = covLines + 1 end
+                if (info.sessionCoverageFraction or 0) > 0 then covLines = covLines + 1 end
+                h = h + SoilHUD.LINE_H * covLines
+            end
             if mgr.settings.compactionEnabled and (info.compaction or 0) > 0 then h = h + SoilHUD.LINE_H end
         end
         if (info.amendBurnPenalty or 0) > 0 then h = h + SoilHUD.LINE_H end
@@ -653,22 +660,33 @@ function SoilHUD:update(dt)
     -- avoids string.format calls inside draw() which runs at 60 FPS.
     local info = self.cachedFieldInfo
     if info then
-        -- Coverage text
-        local cov = info.sessionCoverageFraction or info.coverageFraction or 0
-        if sprayer and cov > 0 then
-            local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
-            local covPct = math.floor(cov * 100 + 0.5)
-            local lastProd = info.sessionLastProduct
-            if lastProd then
-                local ft = g_fillTypeManager and g_fillTypeManager:getFillTypeByName(lastProd)
-                local productLabel = (ft and ft.title) or lastProd
-                self._fmt_covText = string.format(g_i18n:getText("sf_hud_pass_coverage"), covPct, productLabel)
-            else
+        -- Coverage text: show both session (per-pass, resets on save/reload) and daily (persists)
+        local sessCov = info.sessionCoverageFraction or 0
+        local dayCov  = info.coverageFraction or 0
+        local showSession = sprayer and sessCov > 0
+        local showDay     = dayCov > 0
+        if showSession or showDay then
+            local parts = {}
+            if showDay then
+                local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
+                local dayPct = math.floor(dayCov * 100 + 0.5)
                 local minPct = math.floor(minCov * 100 + 0.5)
-                self._fmt_covText = string.format(g_i18n:getText("sf_hud_coverage"), covPct, minPct)
+                table.insert(parts, string.format(g_i18n:getText("sf_hud_coverage"), dayPct, minPct))
             end
+            if showSession then
+                local sessPct = math.floor(sessCov * 100 + 0.5)
+                local lastProd = info.sessionLastProduct
+                if lastProd then
+                    local ft = g_fillTypeManager and g_fillTypeManager:getFillTypeByName(lastProd)
+                    local productLabel = (ft and ft.title) or lastProd
+                    table.insert(parts, string.format(g_i18n:getText("sf_hud_pass_coverage"), sessPct, productLabel))
+                else
+                    table.insert(parts, string.format(g_i18n:getText("sf_hud_pass_noproduct"), sessPct))
+                end
+            end
+            self._fmt_covLines = parts
         else
-            self._fmt_covText = nil
+            self._fmt_covLines = nil
         end
         -- Compaction text
         local comp = info.compaction or 0
@@ -701,7 +719,7 @@ function SoilHUD:update(dt)
             self._fmt_yieldText = nil
         end
     else
-        self._fmt_covText   = nil
+        self._fmt_covLines  = nil
         self._fmt_compText  = nil
         self._fmt_burnText  = nil
         self._fmt_burnRiskText = nil
@@ -752,9 +770,13 @@ function SoilHUD:buildFieldInfoLines(info)
     local pestPct    = math.floor((info.pestPressure    or 0) + 0.5)
     local diseasePct = math.floor((info.diseasePressure or 0) + 0.5)
     local compPct    = math.floor((info.compaction      or 0) + 0.5)
+    -- Discovery gate: a named infection is UNKNOWN until scouted. While hidden we show a
+    -- "? (scout to identify)" row and let neither the pressure %, the name, the soil grade,
+    -- nor the Needs list leak its severity. Mirrors getScoutReport's own gate exactly.
+    local diseaseHidden = (info.activeDisease ~= nil) and (info.diseaseDiscovered ~= true)
     if weedPct    >= weedMed    and grade ~= "Poor" then grade = "Fair" end
     if pestPct    >= pestMed                        then grade = "Poor" end
-    if diseasePct >= diseaseMed                     then grade = "Poor" end
+    if diseasePct >= diseaseMed and not diseaseHidden then grade = "Poor" end
 
     -- ── Yield ────────────────────────────────────────────────
     -- Single source of truth: info.yieldEfficiency is the SAME field-average
@@ -829,7 +851,7 @@ function SoilHUD:buildFieldInfoLines(info)
     if info.pH and (info.pH < phGoodLow or info.pH > phGoodHigh) then table.insert(needs, "pH") end
     if weedPct    >= weedMed    then table.insert(needs, g_i18n:getText("sf_hud_weeds")   or "Weed Risk")   end
     if pestPct    >= pestMed    then table.insert(needs, g_i18n:getText("sf_hud_pests")   or "Pests")   end
-    if diseasePct >= diseaseMed then table.insert(needs, g_i18n:getText("sf_hud_disease") or "Disease") end
+    if diseasePct >= diseaseMed and not diseaseHidden then table.insert(needs, g_i18n:getText("sf_hud_disease") or "Disease") end
     if compPct    > 10          then table.insert(needs, g_i18n:getText("sf_hud_compaction") or "Compaction") end
 
     local protected = g_i18n:getText("sf_hud_protected") or "protected"
@@ -864,9 +886,15 @@ function SoilHUD:buildFieldInfoLines(info)
     table.insert(lines, { group = "early", label = "OM",      value = string.format("%.1f%%", info.organicMatter) })
     if weedPct    > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_weeds")   or "Weed Risk", value = pressureLine(weedPct,    info.herbicideActive) }) end
     if pestPct    > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_pests")   or "Pests",     value = pressureLine(pestPct,    info.insecticideActive) }) end
-    if diseasePct > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease",   value = pressureLine(diseasePct, info.fungicideActive) }) end
-    if activeDiseaseStr then
-        table.insert(lines, { group = "early", label = g_i18n:getText("sf_fieldinfo_disease") or "Active Disease", value = activeDiseaseStr })
+    if diseaseHidden then
+        local unknownStr = (g_i18n:hasText("sf_hud_disease_unknown") and g_i18n:getText("sf_hud_disease_unknown"))
+            or "? (scout to identify)"
+        table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease", value = unknownStr })
+    else
+        if diseasePct > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease",   value = pressureLine(diseasePct, info.fungicideActive) }) end
+        if activeDiseaseStr then
+            table.insert(lines, { group = "early", label = g_i18n:getText("sf_fieldinfo_disease") or "Active Disease", value = activeDiseaseStr })
+        end
     end
     table.insert(lines, {
         group = "early",
@@ -998,7 +1026,7 @@ function SoilHUD:refreshFieldData()
         self._fmt_N         = nil
         self._fmt_P         = nil
         self._fmt_K         = nil
-        self._fmt_covText   = nil
+        self._fmt_covLines  = nil
         self._fmt_compText  = nil
         self._fmt_yieldText = nil
     end
@@ -1457,13 +1485,21 @@ function SoilHUD:drawPanel()
                     info.insecticideActive, px, cy, pw, s, fontMult)
             end
             if mgr.settings.diseasePressure and ((info.diseasePressure or 0) > 0 or info.fungicideActive) then
-                cy = self:drawPressureRow("sf_hud_disease", info.diseasePressure or 0,
-                    info.fungicideActive, px, cy, pw, s, fontMult)
+                if info.activeDisease and not info.diseaseDiscovered then
+                    local unknownStr = (g_i18n:hasText("sf_hud_disease_unknown") and g_i18n:getText("sf_hud_disease_unknown"))
+                        or "? (scout to identify)"
+                    cy = self:drawPressureRow("sf_hud_disease", 0, false, px, cy, pw, s, fontMult, unknownStr)
+                else
+                    cy = self:drawPressureRow("sf_hud_disease", info.diseasePressure or 0,
+                        info.fungicideActive, px, cy, pw, s, fontMult)
+                end
             end
 
-            -- Coverage row: only show when player is actively in a fertilizer applicator
-            local covText = self._fmt_covText
-            if self._cachedSprayer and covText then
+            -- Coverage rows: only show when player is actively in a fertilizer applicator.
+            -- May be two lines (daily coverage + per-pass PASS); each gets its own LINE_H
+            -- slot so the second line never overlaps the compaction/yield row below.
+            local covLines = self._fmt_covLines
+            if self._cachedSprayer and covLines then
                 local cov = info.sessionCoverageFraction or info.coverageFraction or 0
                 local minCov = SoilConstants.COVERAGE and SoilConstants.COVERAGE.MIN_FULL_CREDIT or 0.70
                 local covPoor, _, covGood = self:palette()
@@ -1472,8 +1508,10 @@ function SoilHUD:drawPanel()
                 local pad = SoilHUD.PAD * s
                 setTextAlignment(RenderText.ALIGN_LEFT)
                 setTextColor(cr, cg, cb, 1.0)
-                cy = cy - SoilHUD.LINE_H * s
-                renderText(px + pad, cy + (SoilHUD.LINE_H - 0.010) * 0.5 * s, 0.010 * fontMult * s, covText)
+                for _, line in ipairs(covLines) do
+                    cy = cy - SoilHUD.LINE_H * s
+                    renderText(px + pad, cy + (SoilHUD.LINE_H - 0.010) * 0.5 * s, 0.010 * fontMult * s, line)
+                end
             end
 
             -- Compaction row
@@ -1782,7 +1820,7 @@ end
 -- Draws a single weed/pest/disease pressure row.
 -- pressure is 0-100.  isProtected shows "(protected)" suffix when true.
 -- Returns updated cy after the row.
-function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s, fontMult)
+function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s, fontMult, hiddenText)
     local pad      = SoilHUD.PAD * s
     local rowH     = SoilHUD.LINE_H * s
     local barH     = SoilHUD.BAR_H * s
@@ -1793,6 +1831,17 @@ function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s,
     -- Pre-decrement so the row occupies [cy, cy+rowH] - same pattern as drawNutrientRow,
     -- which ensures bars are centred within their own row and not in the row above (#HUD).
     cy = cy - rowH
+
+    -- Discovery gate: an unscouted named infection renders "? (scout to identify)" in place
+    -- of the bar + %, so neither the severity nor the name leaks on the free monitor.
+    if hiddenText then
+        setTextColor(SoilHUD.C_LABEL[1], SoilHUD.C_LABEL[2], SoilHUD.C_LABEL[3], SoilHUD.C_LABEL[4])
+        renderText(tx, cy + (rowH - textSize) * 0.5, textSize, g_i18n:getText(labelKey))
+        setTextAlignment(RenderText.ALIGN_LEFT)
+        setTextColor(SoilHUD.C_FAIR[1], SoilHUD.C_FAIR[2], SoilHUD.C_FAIR[3], 1.0)
+        renderText(tx + 0.038*s, cy + (rowH - textSize) * 0.5, textSize, hiddenText)
+        return cy
+    end
 
     -- 3-level color aligned with Constants thresholds (WEED_PRESSURE.LOW / MEDIUM)
     local wp = SoilConstants.WEED_PRESSURE  -- LOW=20, MEDIUM=50 (shared by weed/pest/disease)
@@ -1826,23 +1875,41 @@ end
 
 -- ── Sprayer fill-type helpers ─────────────────────────────
 --- Returns the FillType object currently loaded in the sprayer, or nil.
+-- Handles vehicles with spec_sprayer (standard sprayers), as well as
+-- slurry tankers, manure spreaders, and lime spreaders (e.g. Vredo DLC, #728).
 function SoilHUD:getSprayerFillType(sprayer)
     if not sprayer then return nil end
     local fillTypeIndex
 
-    -- Try workAreaParameters first (populated while actively spraying)
+    -- Priority 1: spec_sprayer workAreaParameters (populated while actively spraying)
     local spec = sprayer.spec_sprayer
     if spec and spec.workAreaParameters then
         local ft = spec.workAreaParameters.sprayFillType
         if ft and ft > 0 then fillTypeIndex = ft end
     end
 
-    -- Issue #708: prefer the physical tank contents over wap.sprayFillType, which AI/CP
-    -- can leave pointing at the wrong product after a headland restart. Keeps the wap
-    -- value only when the tank is empty/UNKNOWN (external-fill BUY mode).
+    -- Priority 2: Issue #708 - prefer the physical tank contents over wap.sprayFillType,
+    -- which AI/CP can leave pointing at the wrong product after a headland restart.
     fillTypeIndex = SoilUtils.resolveSprayerFillTypeIndex(sprayer, fillTypeIndex)
 
-    -- Fall back to fill unit query (works when parked)
+    -- Priority 3: check slurry/manure/lime tanker specifications directly.
+    -- The Vredo DLC VT7138 and similar vehicles have spec_slurryTanker or
+    -- spec_manureSpreader but the implement sub-entity may not have spec_sprayer
+    -- at all, so the standard sprayer-based queries above return nil. (#728)
+    if not fillTypeIndex then
+        for _, specName in ipairs({"spec_slurryTanker", "spec_manureSpreader", "spec_limeSpreader", "spec_manureBarrel"}) do
+            local tankSpec = sprayer[specName]
+            if tankSpec and tankSpec.fillUnitIndex then
+                local ok, ft = pcall(function() return sprayer:getFillUnitFillType(tankSpec.fillUnitIndex) end)
+                if ok and ft and ft > 0 and ft ~= FillType.UNKNOWN then
+                    fillTypeIndex = ft
+                    break
+                end
+            end
+        end
+    end
+
+    -- Priority 4: fall back to generic fill unit query (works when parked)
     if not fillTypeIndex then
         local ok, units = pcall(function() return sprayer:getFillUnits() end)
         if ok and units then
@@ -2224,8 +2291,14 @@ function SoilHUD:getCurrentSprayer()
     local result = nil
     if SoilFertilityManager and SoilFertilityManager.isFertilizerApplicator then
         if SoilFertilityManager.isFertilizerApplicator(vehicle) then
-            -- Self-propelled: the driven vehicle is the applicator
-            result = vehicle
+            -- Self-propelled: the driven vehicle is the applicator.
+            -- ALSO scan for an attached implement that carries the actual product
+            -- (e.g. the Vredo DLC VT7138 where the chassis has spec_sprayer but
+            --  the slurry tank + boom is an implement sub-entity). Prefer the
+            --  implement when one exists so fill-type resolution reads the correct
+            --  physical tank (LIQUIDMANURE, not LIQUIDFERTILIZER, #728).
+            local implement = findApplicatorImplement(vehicle)
+            result = implement or vehicle
         else
             -- Pulled implement: scan the attacher joint tree
             result = findApplicatorImplement(vehicle)

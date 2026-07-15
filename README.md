@@ -200,10 +200,10 @@ Three in-vehicle overlay panels that appear when you enter a supported sprayer. 
 | System | What it does | How to enable |
 |---|---|---|
 | **Smart Sensor** | Monitors pest, disease, and nutrient need per section. Blocks spraying on sections with no active need detected. | Settings → Admin → Smart Systems. Works with any VWW sprayer. |
-| **See & Spray** | Shows live per-cell pressure for pest, disease, and weed at the sprayer's current position. Colour-coded per section. | Purchase a **JD R700i** or **JD R975i** with the *See & Spray* shop configuration selected. |
+| **See & Spray** | Shows live per-cell pressure for pest, disease, and weed at the sprayer's current position. Colour-coded per section. | Buy any sprayer with the *See & Spray* shop configuration selected. |
 | **Variable Rate** | Adjusts boom output rate per section based on soil deficits for the loaded product. Green bar = low rate; red bar = high rate. | Default key **Alt+7** (rebind `SF_VARIABLE_RATE` in **Controls → Mods**). Enable in Admin → Smart Systems. |
 
-Smart Sensor and Variable Rate work with any VWW-capable sprayer. **See & Spray requires the JD R700i (28 m) or JD R975i (36 m)** with the See & Spray option selected at purchase - base game sprayers are not tested with this feature.
+Smart Sensor and Variable Rate work with any VWW-capable sprayer. **See & Spray is available on any sprayer** with the See & Spray option selected at purchase.
 
 **Free Panel Layout** - Enable in Settings → Display → Position, then use the Shift+H edit mode to drag each panel independently. Press **[−]** in any panel's title bar to collapse it to the title bar only. Positions and collapse states are saved to `hud.xml`.
 
@@ -326,6 +326,9 @@ The full panel ships with its key **unbound** to avoid clashing with other mods.
 
 Every core rate has its own multiplier: nutrient depletion, fertilizer efficiency, rain leaching, seasonal strength, pest growth, disease growth, fallow recovery, and compaction build-up / decay. You can also set the starting N / P / K / pH / OM that every new field rolls with. Defaults reproduce the standard simulation - move a value only if you want that part of the model faster, slower, or stronger.
 
+> [!IMPORTANT]
+> **Difficulty locks the bypass tools.** On **Realistic** and **Hardcore** the tuning editors, the challenge toggles (fertility, nutrients, fertilizer costs, seasonal, rain, plowing, compaction, disease climate, replenishment rate) and the field cheat tools (Set State, Set Disease, Recover Field, Drain Vehicle) are greyed out and locked, and any softened value is reset to its default. These are available on **Simple** only, so the simulation stays honest once you commit to a harder run. The matching console commands are locked the same way. The Difficulty selector itself always stays changeable, so you can drop back to Simple if you want to tinker.
+
 > [!NOTE]
 > In multiplayer, settings are **server-authoritative** - the host's settings are pushed to all clients on join. Non-admin clients can see but not change server settings. HUD display preferences are always local and can be changed by any player.
 
@@ -360,7 +363,6 @@ Open the developer console with **`~`** and type `soilfertility` for the full li
 | `SoilSaveData` | - | Force-save soil state now |
 | `SoilDebug` | - | Toggle verbose debug logging |
 | `soilSetState` | `<fieldId> <N> <P> <K> <pH> <OM>` | Directly set a field's soil values (advanced) |
-| `SoilPFDump` | - | Dump the Precision Farming bridge state (diagnostics) |
 
 ---
 
@@ -437,7 +439,7 @@ This mod is licensed under **[CC BY-NC-ND 4.0](https://creativecommons.org/licen
 
 You may share it in its original form with attribution. You may not sell it, modify and redistribute it, or reupload it under a different name or authorship. Contributions via pull request are explicitly permitted and encouraged.
 
-**Author:** TisonK &nbsp;·&nbsp; **Version:** 2.4.5.0
+**Author:** TisonK &nbsp;·&nbsp; **Version:** 2.4.6.0
 
 © 2026 TisonK - See [LICENSE](LICENSE) for full terms.
 

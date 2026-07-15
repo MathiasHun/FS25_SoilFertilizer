@@ -19,6 +19,18 @@ local function requestSettingChange(settingId, value)
     end
 end
 
+-- Returns a refusal message when bypass/soften console commands are locked at the current
+-- difficulty (Realistic/Hardcore), or nil when allowed (Simple). Mirrors the settings-panel
+-- lock so no surface (panel, console, hotkey) can soften the sim above Simple. Policy lives
+-- in Settings:allowsBypassTools().
+local function bypassLockedMsg()
+    local s = g_SoilFertilityManager and g_SoilFertilityManager.settings
+    if s and s.allowsBypassTools and not s:allowsBypassTools() then
+        return string.format("Locked on %s difficulty. Available on Simple only.", s:getDifficultyName())
+    end
+    return nil
+end
+
 function SoilSettingsGUI.new()
     local self = setmetatable({}, SoilSettingsGUI_mt)
     return self
@@ -43,7 +55,6 @@ function SoilSettingsGUI:registerConsoleCommands()
     addConsoleCommand("SoilSaveData", "Force save soil data", "consoleCommandSaveData", self)
     addConsoleCommand("SoilDebug", "Toggle debug mode", "consoleCommandDebug", self)
     addConsoleCommand("SoilDrainVehicle", "Drain custom fertilizer from current vehicle/implements (50% refund)", "consoleCommandDrainVehicle", self)
-    addConsoleCommand("SoilPFDump", "Dump Precision Farming bridge API for integration diagnostics", "consoleCommandPFDump", self)
     addConsoleCommand("soilSetState", "Set field state: soilSetState <fieldId> <N> <P> <K> <pH> <OM>", "consoleCommandSetState", self)
     addConsoleCommand("soilRecoverField", "Recover field to default values: soilRecoverField [fieldId]", "consoleCommandRecoverField", self)
     addConsoleCommand("SoilRerollFields", "Re-roll starting soil (N/P/K/pH/OM) for all fields with the new regional variation (#632)", "consoleCommandRerollFields", self)
@@ -57,6 +68,7 @@ function SoilSettingsGUI:registerConsoleCommands()
     addConsoleCommand("SoilFungicides", "List fungicides, or recommendations for a disease: SoilFungicides [diseaseId]", "consoleCommandFungicides", self)
     addConsoleCommand("SoilSetDisease", "TEST: force disease on the current field: SoilSetDisease <pressure 0-100> [diseaseId]", "consoleCommandSetDisease", self)
     addConsoleCommand("SoilSetDiseaseDifficulty", "Set disease difficulty (1=Easy, 2=Normal, 3=Hard)", "consoleCommandSetDiseaseDifficulty", self)
+    addConsoleCommand("SoilAddCrop", "Add a custom crop to the tuning table (seeded from generic defaults): SoilAddCrop <name> (#717)", "consoleCommandAddCrop", self)
     addConsoleCommand("soilfertility", "Show all soil commands", "consoleCommandHelp", self)
 
     SoilLogger.info("Console commands registered")
@@ -82,7 +94,6 @@ function SoilSettingsGUI:consoleCommandHelp()
     print("SoilSaveData - Force save soil data")
     print("SoilDebug - Toggle debug mode")
     print("SoilDrainVehicle - Drain custom fertilizer from vehicle/implements (50% refund)")
-    print("SoilPFDump - Dump Precision Farming API for integration diagnostics")
     print("soilSetState <fieldId> <N> <P> <K> <pH> <OM> - Set state for a field")
     print("soilRecoverField [fieldId] - Recover field to default values")
     print("SoilRerollFields - Re-roll starting soil for all fields (new regional variation)")
@@ -91,6 +102,7 @@ function SoilSettingsGUI:consoleCommandHelp()
     print("SoilFieldSentry [fieldId] - FieldSentry: show a field's sim status, or list slept fields (#651)")
     print("SoilMeadowField <fieldId> [true|false] - FieldSentry: flag/clear a field as meadow (#651)")
     print("SoilDecoField <fieldId> [true|false] - FieldSentry: flag/clear a field as decorative/fake (#651)")
+    print("SoilAddCrop <name> - Add a custom crop to the Crop Tuning Editor (#717)")
     print("==============================================")
     return "Type 'soilfertility' for more info"
 end
@@ -270,6 +282,7 @@ function SoilSettingsGUI:consoleCommandSetDiseaseDifficulty(difficulty)
 end
 
 function SoilSettingsGUI:consoleCommandSetDisease(pressure, diseaseId)
+    local locked = bypassLockedMsg(); if locked then return locked end
     local sfm = g_SoilFertilityManager
     if not (sfm and sfm.soilSystem) then return "Error: Soil Mod not initialized" end
     if not sfm.settings.diseasePressure then
@@ -287,10 +300,15 @@ function SoilSettingsGUI:consoleCommandSetDisease(pressure, diseaseId)
             diseaseId, table.concat(ids, ", "))
     end
 
-    local ok = sfm.soilSystem:debugSetDisease(fid, p, diseaseId)
+    local ok, dinfo = sfm.soilSystem:debugSetDisease(fid, p, diseaseId)
     if not ok then return string.format("Could not set disease on field %d", fid) end
-    -- Show the resulting scouting report immediately.
-    return self:consoleCommandScout(tostring(fid))
+    dinfo = dinfo or {}
+    -- Leave it UNSCOUTED on purpose so the discovery gate is testable: the Soil Monitor
+    -- now shows "Disease: ?" for this field until you scout it. Scout to reveal + treat.
+    return string.format(
+        "TEST: Field %d set to %.0f%% pressure (disease=%s), hidden until scouted. "
+        .. "Check the Soil Monitor (shows '?'), then run SoilScout %d (or the Scout hotkey) to reveal.",
+        fid, dinfo.pressure or p or 0, tostring(dinfo.disease or "none"), fid)
 end
 
 function SoilSettingsGUI:consoleCommandScout(fieldId)
@@ -299,7 +317,9 @@ function SoilSettingsGUI:consoleCommandScout(fieldId)
     local fid = resolveDiseaseFieldId(fieldId)
     if not fid then return "Usage: SoilScout <fieldId>  (or stand on a field)" end
 
-    local rep = sfm.soilSystem:getScoutReport(fid)
+    -- Scouting is the deliberate reveal: it flips the discovery gate so the report
+    -- returns the full truth (and, in MP, tells the server to open the gate farm-wide).
+    local rep = sfm.soilSystem:scoutField(fid)
     if not rep then return string.format("Field %d: no soil data", fid) end
     if rep.enabled == false then return "Disease system is disabled (enable Disease Pressure in settings)" end
 
@@ -371,7 +391,13 @@ end
 function SoilSettingsGUI:consoleCommandSoilEnable()
     if g_SoilFertilityManager and g_SoilFertilityManager.settings then
         requestSettingChange("enabled", true)
-        if g_SoilFertilityManager.soilSystem then
+        -- Full activation, not just soilSystem:initialize(): if the mod loaded disabled,
+        -- onMissionStarted skipped the minimap heatmap, per-crop tuning, and field-data
+        -- load too, so a bare initialize() left the monitor/layer half-dead. activateSoilSystem
+        -- brings all of it back so re-enabling mid-session needs no reload.
+        if g_SoilFertilityManager.activateSoilSystem then
+            g_SoilFertilityManager:activateSoilSystem()
+        elseif g_SoilFertilityManager.soilSystem then
             g_SoilFertilityManager.soilSystem:initialize()
         end
         return "Soil & Fertilizer Mod enabled"
@@ -412,6 +438,7 @@ function SoilSettingsGUI:consoleCommandSetNutrients(enabled)
 end
 
 function SoilSettingsGUI:consoleCommandSetFertilizerCosts(enabled)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if enabled == nil then return "Usage: SoilSetFertilizerCosts true|false" end
     local enable = enabled:lower()
     if enable ~= "true" and enable ~= "false" then return "Invalid value. Use 'true' or 'false'" end
@@ -730,6 +757,7 @@ end
 -- offers no way to drain them. This command is the escape
 -- hatch so players can switch products without wasting them.
 function SoilSettingsGUI:consoleCommandDrainVehicle()
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_currentMission then
         return "Error: No active mission"
     end
@@ -852,6 +880,7 @@ function SoilSettingsGUI:consoleCommandDrainVehicle()
 end
 
 function SoilSettingsGUI:consoleCommandSetState(fieldId, n, p, k, ph, om)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_SoilFertilityManager or not g_SoilFertilityManager.soilSystem then
         return "Error: Soil Mod not initialized"
     end
@@ -916,6 +945,7 @@ function SoilSettingsGUI:consoleCommandSetState(fieldId, n, p, k, ph, om)
 end
 
 function SoilSettingsGUI:consoleCommandRecoverField(fieldId)
+    local locked = bypassLockedMsg(); if locked then return locked end
     if not g_SoilFertilityManager or not g_SoilFertilityManager.soilSystem then
         return "Error: Soil Mod not initialized"
     end
@@ -1024,11 +1054,34 @@ function SoilSettingsGUI:consoleCommandRerollUnownedFields()
         rerolled, skipped)
 end
 
-function SoilSettingsGUI:consoleCommandPFDump()
-    if g_SoilFertilityManager and g_SoilFertilityManager.pfBridge then
-        g_SoilFertilityManager.pfBridge:dumpApi()
-        return "PF dump written - check the console output above"
+--- SoilAddCrop <name>
+--- Adds a custom crop to the per-crop tuning table (issue #717), seeded from the
+--- generic CROP_EXTRACTION_DEFAULT. The Crop Tuning Editor then lists it for N/P/K
+--- adjustment, and it is persisted to soilCropTuning.xml.
+function SoilSettingsGUI:consoleCommandAddCrop(name)
+    if not g_SoilFertilityManager or not g_SoilFertilityManager.cropTuning then
+        return "Error: Soil Mod not initialized"
     end
-    print("[SoilPFDump] SF bridge not yet initialised - load a savegame first, then run SoilPFDump")
-    return "Bridge not ready - load savegame first"
+    if name == nil or name == "" then
+        return "Usage: SoilAddCrop <name>  (e.g. SoilAddCrop triticale)"
+    end
+
+    -- The crop tuning table feeds the server-side simulation; a client edit would
+    -- only touch its local copy and desync, so gate this to the server/host.
+    local isServer = g_currentMission and g_currentMission:getIsServer()
+    if not isServer then
+        return "SoilAddCrop must be run on the server/host (it owns the simulation)."
+    end
+
+    local ok, err = g_SoilFertilityManager.cropTuning:addCrop(name)
+    if not ok then
+        return string.format("Could not add crop '%s': %s", tostring(name), tostring(err))
+    end
+
+    local key   = name:gsub("%s+", ""):lower()
+    local rates = g_SoilFertilityManager.cropTuning:getRates(key)
+    return string.format(
+        "Added crop '%s' (N=%.2f P=%.2f K=%.2f). Open the Crop Tuning Editor to adjust it.",
+        key, rates and rates.N or 0, rates and rates.P or 0, rates and rates.K or 0)
 end
+

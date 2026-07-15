@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Pests" eh="2fed5101" />
     <e k="sf_hud_disease" v="Disease" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(protected)" eh="8273211e" />
     <e k="sf_hud_yield" v="Yield" eh="97345487" />
     <e k="sf_hud_estYield" v="Est. Yield" eh="32a4135e" />
@@ -325,6 +326,11 @@
     <e k="helpLine_sf_mp_p1_auth_text" v="All soil simulation runs on the server. Clients receive full field data and settings on join, with automatic retry if the server is still loading. HUD display settings (position, theme, size) are per-player and are never synced to the server." eh="db72a3f9" />
     <e k="helpLine_sf_mp_p1_ded_title" v="Dedicated Servers" eh="4d3a45ba" />
     <e k="helpLine_sf_mp_p1_ded_text" v="Dedicated servers run the full simulation without any HUD or GUI overhead - this is expected and normal. Use console commands (soilStatus, SoilSetDifficulty, SoilShowSettings, etc.) to manage and verify settings on a dedicated server." eh="3df784d6" />
+    <e k="helpLine_sf_mp_p2_title" v="Compatibility and Workflow" />
+    <e k="helpLine_sf_mp_p2_compat_title" v="Mod Compatibility" />
+    <e k="helpLine_sf_mp_p2_compat_text" v="Soil &amp; Fertilizer uses appended function hooks, so it runs alongside Courseplay, AutoDrive and most equipment mods without conflict. When Precision Farming is active in a savegame it detects it and stands down automatically, so the two never fight over the same fields." />
+    <e k="helpLine_sf_mp_p2_workflow_title" v="Changing Settings" />
+    <e k="helpLine_sf_mp_p2_workflow_text" v="In multiplayer only server admins can change settings. Change them from the panel or console on the host and every change is validated and pushed to all clients. On Realistic and Hardcore the tuning editors and challenge toggles are locked, so no one can soften the simulation mid-game." />
 
 
     <e k="sf_crop_rotation_short" v="Crop Rotation" eh="def2c162" />
@@ -429,7 +435,7 @@
     <e k="sf_help_k" v="K  (Potassium)    - Apply Potash. Important for roots." eh="e0217634" />
     <e k="sf_help_om" v="OM (Organic Mat.) - Builds slowly. Plow in manure/compost." eh="a4e29617" />
     <e k="sf_help_soil_header" v="SOIL CHEMISTRY" eh="19c67ff5" />
-    <e k="sf_help_ph" v="pH  6.5-7.0 = Ideal.  < 6.5 apply Lime.  > 7.5 apply Gypsum." eh="8929304d" />
+    <e k="sf_help_ph" v="pH  6.5-7.0 = Ideal.  &lt; 6.5 apply Lime.  > 7.5 apply Gypsum." eh="8929304d" />
     <e k="sf_help_pressure_header" v="CROP PRESSURE" eh="132b0f66" />
     <e k="sf_help_weed" v="Weed    > 20% - Apply Herbicide." eh="c8d890df" />
     <e k="sf_help_pest" v="Pest    > 20% - Apply Insecticide." eh="f4932a05" />
@@ -487,6 +493,19 @@
     <e k="sf_detail_last_crop_label" v="Last Crop" eh="ff41e5eb" />
     <e k="sf_detail_rotation_label" v="Rotation Status" eh="83f7f522" />
 
+    <!-- Rotation Foresight (pre-plant preview - SoilFieldDetailDialog.lua) -->
+    <e k="sf_rf_section" v="Rotation Foresight" eh="6f977043" />
+    <e k="sf_rf_intro" v="If you plant next on this field:" eh="34964567" />
+    <e k="sf_rf_hint" v="Grow a crop on this field first to preview rotations." eh="817d250a" />
+    <e k="sf_rf_status_bonus" v="Bonus" eh="3c0ee4ba" />
+    <e k="sf_rf_status_ok" v="OK" eh="e0aa021e" />
+    <e k="sf_rf_status_fatigue" v="Fatigue" eh="b5ff1b29" />
+    <e k="sf_rf_effect_fatigue" v="x1.15 depletion" eh="5f05aded" />
+    <e k="sf_rf_effect_nplus" v="+N" eh="fa91409a" />
+    <e k="sf_rf_effect_disease_down" v="less disease" eh="f1375cc1" />
+    <e k="sf_rf_effect_disease_up" v="more disease" eh="0417d38f" />
+    <e k="sf_rf_effect_neutral" v="no change" eh="66d22a5d" />
+
     <!-- Treatment Prescription Dialog (SoilTreatmentDialog.lua) -->
     <e k="sf_treat_title" v="Treatment Prescription" eh="0ccc3ee5" />
     <e k="sf_treat_section_soil" v="Soil Amelioration" eh="09e016e4" />
@@ -542,7 +561,7 @@
          ====================================================== -->
     <e k="sf_notify_welcome" v="Soil &amp; Fertilizer Mod Active | Shift+O to open settings | Type 'soilfertility' for commands" eh="d97e4139" />
     <e k="sf_startup_dialog_version" v="What's new in this version:" eh="0b25f5c2" />
-    <e k="sf_startup_dialog_footer" v="Thank you for using my mod, it means a lot to me <3" eh="0f08d735" />
+    <e k="sf_startup_dialog_footer" v="Thank you for using my mod, it means a lot to me &lt;3" eh="0f08d735" />
     <e k="sf_startup_dialog_footer2" v="Found a bug? Please report it on github!" eh="728e2cf3" />
     <e k="sf_startup_dialog_footer3" v="Happy farming and don't forget:" eh="aa38e511" />
     <e k="sf_startup_dialog_footer4" v="Your soil remembers everything..." eh="1a3e5c35" />
@@ -727,6 +746,8 @@
     <e k="sf_nav_smart_systems_desc"       v="Configure Smart Sensor, See &amp; Spray and Variable Rate systems" />
     <e k="sf_nav_tuning_label"            v="Constants Tuning Editor" />
     <e k="sf_nav_tuning_desc"             v="Fine-tune simulation constants: depletion rates, stress growth, starting soil values" />
+    <e k="sf_nav_crop_tuning_label"       v="Crop Tuning Editor" />
+    <e k="sf_nav_crop_tuning_desc"        v="Adjust per-crop N/P/K requirements; add crops via soilCropTuning.xml" />
     <e k="sf_panel_hdr_smart_sensor_sys"   v="Smart Sensor System" />
     <e k="sf_panel_hdr_see_spray_sys"      v="See &amp; Spray System" />
     <e k="sf_panel_hdr_var_rate_sys"       v="Variable Rate System" />
@@ -828,7 +849,7 @@
     <e k="sf_guide_p1_34" v="Smart Sensor Blocks sections with no active need." eh="dd267572" />
     <e k="sf_guide_p1_35" v="  Auto per section. Enable in the Admin panel." eh="2b3e6122" />
     <e k="sf_guide_p1_36" v="See &amp; Spray  Live per-cell pressure in the vehicle." eh="cddacb27" />
-    <e k="sf_guide_p1_37" v="  JD R700i or R975i with the See &amp; Spray config." eh="ae099dd1" />
+    <e k="sf_guide_p1_37" v="  Any sprayer with the See &amp; Spray shop config." eh="88f78e43" />
     <e k="sf_guide_p1_38" v="Variable Rate Auto-adjusts boom rate from deficits." eh="38a5c159" />
     <e k="sf_guide_p1_39" v="  Key: Toggle Variable Rate (Alt+7). Admin on." eh="3a71a237" />
     <e k="sf_guide_p1_40" v="KEYBINDINGS" eh="07a9ae0d" />
@@ -1130,5 +1151,8 @@
     <e k="sf_scout_disabled" v="Disease system disabled" eh="a2ffd328" />
     <e k="sf_admin_field_set_disease_label" v="Set Field Disease" eh="faa773f5" />
     <e k="sf_admin_field_set_disease_desc" v="Manually set the disease pressure (and disease type) for the current field" eh="d86eb3e1" />
-    </elements>
+        <e k="sf_multi_tank_short"             v="Multi-Tank Application" />
+    <e k="sf_multi_tank_long"              v="Apply fertilizer to multiple tanks at once (front + rear)" />
+    <e k="sf_desc_multiTankApplication"   v="When enabled, applying product also fills or drains secondary tanks proportionally" />
+</elements>
 </l10n>

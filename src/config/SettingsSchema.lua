@@ -43,6 +43,7 @@ SettingsSchema.definitions = {
         type = "boolean",
         default = true,
         uiId = "sf_fertilizer_cost",
+        simpleOnly = true,
     },
     {
         id = "showNotifications",
@@ -193,6 +194,7 @@ SettingsSchema.definitions = {
         min = 1,
         max = 5,
         uiId = "sf_rr",
+        simpleOnly = true,
     },
     {
         id = "useImperialUnits",
@@ -268,6 +270,12 @@ SettingsSchema.definitions = {
         type = "boolean",
         default = true,
         uiId = "sf_overlap_prev",
+    },
+    {
+        id = "multiTankApplication",
+        type = "boolean",
+        default = true,
+        uiId = "sf_multi_tank",
     },
     {
         id = "independentPanels",
