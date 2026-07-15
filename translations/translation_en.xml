@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Pests" eh="2fed5101" />
     <e k="sf_hud_disease" v="Disease" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(protected)" eh="8273211e" />
     <e k="sf_hud_yield" v="Yield" eh="97345487" />
     <e k="sf_hud_estYield" v="Est. Yield" eh="32a4135e" />

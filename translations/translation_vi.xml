@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Sâu bệnh" eh="2fed5101" />
     <e k="sf_hud_disease" v="Bệnh hại" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(được bảo vệ)" eh="8273211e" />
     <e k="sf_hud_yield" v="Sản lượng" eh="97345487" />
     <e k="sf_hud_estYield" v="Sản lượng dự tính" eh="32a4135e" />

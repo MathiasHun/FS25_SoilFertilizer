@@ -194,6 +194,7 @@
     <e k="sf_hud_weeds" v="[EN] Weed Risk" eh="0ec7e90d" />
     <e k="sf_hud_pests" v="Plagen" eh="2fed5101" />
     <e k="sf_hud_disease" v="Ziekte" eh="e7067a8c" />
+    <e k="sf_hud_disease_unknown" v="[EN] ? (scout to identify)" eh="a6fe3f43" />
     <e k="sf_hud_protected" v="(beschermd)" eh="8273211e" />
     <e k="sf_hud_yield" v="Opbrengst" eh="97345487" />
     <e k="sf_hud_estYield" v="Verw. opbrengst" eh="32a4135e" />
