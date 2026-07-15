@@ -770,9 +770,13 @@ function SoilHUD:buildFieldInfoLines(info)
     local pestPct    = math.floor((info.pestPressure    or 0) + 0.5)
     local diseasePct = math.floor((info.diseasePressure or 0) + 0.5)
     local compPct    = math.floor((info.compaction      or 0) + 0.5)
+    -- Discovery gate: a named infection is UNKNOWN until scouted. While hidden we show a
+    -- "? (scout to identify)" row and let neither the pressure %, the name, the soil grade,
+    -- nor the Needs list leak its severity. Mirrors getScoutReport's own gate exactly.
+    local diseaseHidden = (info.activeDisease ~= nil) and (info.diseaseDiscovered ~= true)
     if weedPct    >= weedMed    and grade ~= "Poor" then grade = "Fair" end
     if pestPct    >= pestMed                        then grade = "Poor" end
-    if diseasePct >= diseaseMed                     then grade = "Poor" end
+    if diseasePct >= diseaseMed and not diseaseHidden then grade = "Poor" end
 
     -- ── Yield ────────────────────────────────────────────────
     -- Single source of truth: info.yieldEfficiency is the SAME field-average
@@ -847,7 +851,7 @@ function SoilHUD:buildFieldInfoLines(info)
     if info.pH and (info.pH < phGoodLow or info.pH > phGoodHigh) then table.insert(needs, "pH") end
     if weedPct    >= weedMed    then table.insert(needs, g_i18n:getText("sf_hud_weeds")   or "Weed Risk")   end
     if pestPct    >= pestMed    then table.insert(needs, g_i18n:getText("sf_hud_pests")   or "Pests")   end
-    if diseasePct >= diseaseMed then table.insert(needs, g_i18n:getText("sf_hud_disease") or "Disease") end
+    if diseasePct >= diseaseMed and not diseaseHidden then table.insert(needs, g_i18n:getText("sf_hud_disease") or "Disease") end
     if compPct    > 10          then table.insert(needs, g_i18n:getText("sf_hud_compaction") or "Compaction") end
 
     local protected = g_i18n:getText("sf_hud_protected") or "protected"
@@ -882,9 +886,15 @@ function SoilHUD:buildFieldInfoLines(info)
     table.insert(lines, { group = "early", label = "OM",      value = string.format("%.1f%%", info.organicMatter) })
     if weedPct    > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_weeds")   or "Weed Risk", value = pressureLine(weedPct,    info.herbicideActive) }) end
     if pestPct    > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_pests")   or "Pests",     value = pressureLine(pestPct,    info.insecticideActive) }) end
-    if diseasePct > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease",   value = pressureLine(diseasePct, info.fungicideActive) }) end
-    if activeDiseaseStr then
-        table.insert(lines, { group = "early", label = g_i18n:getText("sf_fieldinfo_disease") or "Active Disease", value = activeDiseaseStr })
+    if diseaseHidden then
+        local unknownStr = (g_i18n:hasText("sf_hud_disease_unknown") and g_i18n:getText("sf_hud_disease_unknown"))
+            or "? (scout to identify)"
+        table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease", value = unknownStr })
+    else
+        if diseasePct > 0 then table.insert(lines, { group = "early", label = g_i18n:getText("sf_hud_disease") or "Disease",   value = pressureLine(diseasePct, info.fungicideActive) }) end
+        if activeDiseaseStr then
+            table.insert(lines, { group = "early", label = g_i18n:getText("sf_fieldinfo_disease") or "Active Disease", value = activeDiseaseStr })
+        end
     end
     table.insert(lines, {
         group = "early",
@@ -1475,8 +1485,14 @@ function SoilHUD:drawPanel()
                     info.insecticideActive, px, cy, pw, s, fontMult)
             end
             if mgr.settings.diseasePressure and ((info.diseasePressure or 0) > 0 or info.fungicideActive) then
-                cy = self:drawPressureRow("sf_hud_disease", info.diseasePressure or 0,
-                    info.fungicideActive, px, cy, pw, s, fontMult)
+                if info.activeDisease and not info.diseaseDiscovered then
+                    local unknownStr = (g_i18n:hasText("sf_hud_disease_unknown") and g_i18n:getText("sf_hud_disease_unknown"))
+                        or "? (scout to identify)"
+                    cy = self:drawPressureRow("sf_hud_disease", 0, false, px, cy, pw, s, fontMult, unknownStr)
+                else
+                    cy = self:drawPressureRow("sf_hud_disease", info.diseasePressure or 0,
+                        info.fungicideActive, px, cy, pw, s, fontMult)
+                end
             end
 
             -- Coverage rows: only show when player is actively in a fertilizer applicator.
@@ -1804,7 +1820,7 @@ end
 -- Draws a single weed/pest/disease pressure row.
 -- pressure is 0-100.  isProtected shows "(protected)" suffix when true.
 -- Returns updated cy after the row.
-function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s, fontMult)
+function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s, fontMult, hiddenText)
     local pad      = SoilHUD.PAD * s
     local rowH     = SoilHUD.LINE_H * s
     local barH     = SoilHUD.BAR_H * s
@@ -1815,6 +1831,17 @@ function SoilHUD:drawPressureRow(labelKey, pressure, isProtected, px, cy, pw, s,
     -- Pre-decrement so the row occupies [cy, cy+rowH] - same pattern as drawNutrientRow,
     -- which ensures bars are centred within their own row and not in the row above (#HUD).
     cy = cy - rowH
+
+    -- Discovery gate: an unscouted named infection renders "? (scout to identify)" in place
+    -- of the bar + %, so neither the severity nor the name leaks on the free monitor.
+    if hiddenText then
+        setTextColor(SoilHUD.C_LABEL[1], SoilHUD.C_LABEL[2], SoilHUD.C_LABEL[3], SoilHUD.C_LABEL[4])
+        renderText(tx, cy + (rowH - textSize) * 0.5, textSize, g_i18n:getText(labelKey))
+        setTextAlignment(RenderText.ALIGN_LEFT)
+        setTextColor(SoilHUD.C_FAIR[1], SoilHUD.C_FAIR[2], SoilHUD.C_FAIR[3], 1.0)
+        renderText(tx + 0.038*s, cy + (rowH - textSize) * 0.5, textSize, hiddenText)
+        return cy
+    end
 
     -- 3-level color aligned with Constants thresholds (WEED_PRESSURE.LOW / MEDIUM)
     local wp = SoilConstants.WEED_PRESSURE  -- LOW=20, MEDIUM=50 (shared by weed/pest/disease)

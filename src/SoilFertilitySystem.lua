@@ -2034,8 +2034,8 @@ function SoilFertilitySystem:debugSetDisease(fieldId, pressure, diseaseId)
         field.activeDisease = picked
         field.activeDiseaseSeverity = picked and SoilDiseaseSystem.yieldSeverity(picked) or 1.0
     end
-    -- Forced test disease starts unknown; the console SoilSetDisease re-scouts after,
-    -- so it still shows for the tester, but a direct debug caller gets the gated state.
+    -- Forced test disease starts unknown on purpose: SoilSetDisease leaves it GATED so the
+    -- discovery gate is testable (the Soil Monitor shows "?"), then SoilScout reveals it.
     field.diseaseDiscovered = false
 
     if g_server and g_currentMission and g_currentMission.missionDynamicInfo and g_currentMission.missionDynamicInfo.isMultiplayer then
@@ -4975,6 +4975,7 @@ function SoilFertilitySystem:getFieldInfo(fieldId, x, z)
         diseasePressure = field.diseasePressure or 0,
         fungicideActive = (field.fungicideDaysLeft or 0) > 0,
         activeDisease = field.activeDisease,  -- DISEASE_DEFS id of the named infection, or nil
+        diseaseDiscovered = field.diseaseDiscovered or false,  -- discovery gate: false = named infection not yet scouted (HUD shows "?")
         lastFungicide = field.lastFungicide,
         burnDaysLeft = field.burnDaysLeft or 0,
         amendBurnPenalty = field.amendBurnPenalty or 0,  -- pending lime/OM-on-crop burn (0-1); explains a low yield

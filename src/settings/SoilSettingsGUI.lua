@@ -300,10 +300,15 @@ function SoilSettingsGUI:consoleCommandSetDisease(pressure, diseaseId)
             diseaseId, table.concat(ids, ", "))
     end
 
-    local ok = sfm.soilSystem:debugSetDisease(fid, p, diseaseId)
+    local ok, dinfo = sfm.soilSystem:debugSetDisease(fid, p, diseaseId)
     if not ok then return string.format("Could not set disease on field %d", fid) end
-    -- Show the resulting scouting report immediately.
-    return self:consoleCommandScout(tostring(fid))
+    dinfo = dinfo or {}
+    -- Leave it UNSCOUTED on purpose so the discovery gate is testable: the Soil Monitor
+    -- now shows "Disease: ?" for this field until you scout it. Scout to reveal + treat.
+    return string.format(
+        "TEST: Field %d set to %.0f%% pressure (disease=%s), hidden until scouted. "
+        .. "Check the Soil Monitor (shows '?'), then run SoilScout %d (or the Scout hotkey) to reveal.",
+        fid, dinfo.pressure or p or 0, tostring(dinfo.disease or "none"), fid)
 end
 
 function SoilSettingsGUI:consoleCommandScout(fieldId)
