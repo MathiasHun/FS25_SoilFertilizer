@@ -1768,12 +1768,14 @@ function SoilFertilityManager:calculateAutoRateIndex(fieldData, fillType)
 end
 
 --- Cleanup on mod unload
---- Saves soil data and uninstalls hooks
+--- Uninstalls hooks and flushes logs. Does NOT save soil data on purpose: persistence
+--- goes through the FSCareerMissionInfo:saveToXMLFile hook only, so soilData.xml stays in
+--- sync with the actual savegame. Writing here would persist unsaved soil changes on a
+--- quit-without-save (the #730 follow-up HStein72 reported). Console force-saves and the
+--- save hook remain the only write paths for gameplay soil state.
 function SoilFertilityManager:delete()
     -- Flush any buffered debug messages to file before shutdown
     SoilLogger.flushDebugLog()
-    -- Save soil data before shutdown
-    self:saveSoilData()
 
     -- Restore PlayerInputComponent hook if we installed one
     if self._inputHookOriginal and PlayerInputComponent then
